@@ -5,7 +5,7 @@ from pathlib import Path
 import sys,os
 
 Author_name="NULL"
-print_sleep = 0.02 # Logo打印速度
+print_sleep = 0.01 # Logo打印速度
 MUSIC_DIR = Path("/storage/emulated/0/Music")  # 改成你的实际路径
 """
 MUSIC_DIR = Path("C:/Users/seewo/Music") # 希沃一体机炸弹电脑
@@ -216,6 +216,7 @@ from urllib.parse import unquote
 import bisect
 import tempfile
 import http.cookiejar
+import html,json
 
 def current_lyric(lrc_time, lrc_text, current_sec):
     if not lrc_time:
@@ -723,7 +724,7 @@ def player():
     while True:
         max_y, max_x = stdscr.getmaxyx()
         available_lines = max_y - 7
-        if not player.is_busy(): progress_msg = "00:00/00:00 ["+" "*(max_x-20)+"] 0.0%"
+        if not player.is_busy() and not player.is_paused: progress_msg = "00:00/00:00 ["+" "*(max_x-20)+"] 0.0%"
         if need_redraw:
          stdscr.erase()
          if cursor > tmp_cursor and down ==  (available_lines-1):
@@ -772,6 +773,7 @@ def player():
         key = stdscr.getch()
         curses.flushinp()
         underline="─"*(max_x - 2)
+        if not player.is_paused: msg="正在播放"
         if player.is_busy():
            global end_time
            global now_time
@@ -799,7 +801,6 @@ def player():
               need_redraw = True
               if tmp_list_cursor>cursor: tmp_list_cursor=cursor
               elif cursor>=tmp_list_cursor+available_lines: tmp_list_cursor=cursor-available_lines
-
         
         if key == curses.KEY_MOUSE:
             _, x, y, _, bstate = curses.getmouse()
@@ -1675,30 +1676,21 @@ def play_gui():
                     downloading["active"] = True
                     downloading["name"] = f"{it['name']} - {it['artist']}"
                     continue
-
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    running = False
-                elif event.key == pygame.K_SPACE:
-                    a.toggle()
-                elif event.key == pygame.K_s:
-                    a.stop()
-                elif event.key == pygame.K_RIGHT:
-                    a.jump(5); info(f"快进 5s -> {a.real_now():.1f}s")
-                elif event.key == pygame.K_LEFT:
-                    a.jump(-5); info(f"快退 5s -> {a.real_now():.1f}s")
-                elif event.key == pygame.K_n:
-                    a.nxt()
-                elif event.key == pygame.K_p:
-                    a.prv()
+                if event.key == pygame.K_ESCAPE: running = False
+                elif event.key == pygame.K_SPACE: a.toggle()
+                elif event.key == pygame.K_s: a.stop()
+                elif event.key == pygame.K_RIGHT: a.jump(5); info(f"快进 5s -> {a.real_now():.1f}s")
+                elif event.key == pygame.K_LEFT: a.jump(-5); info(f"快退 5s -> {a.real_now():.1f}s")
+                elif event.key == pygame.K_n: a.nxt()
+                elif event.key == pygame.K_p: a.prv()
                 elif event.key == pygame.K_UP:
                     a.set_vol(a.vol + 0.05)
                     info(f"音量: {int(a.vol*100)}%")
                 elif event.key == pygame.K_DOWN:
                     a.set_vol(a.vol - 0.05)
                     info(f"音量: {int(a.vol*100)}%")
-                elif event.key == pygame.K_f:
-                    panel.open = True; panel.msg = ""; info("打开搜索面板")
+                elif event.key == pygame.K_f: panel.open = True; panel.msg = ""; info("打开搜索面板")
 
             elif event.type == pygame.MOUSEBUTTONDOWN and not panel.open:
                 mx, my = event.pos
@@ -1773,7 +1765,6 @@ def play_gui():
             elif event.type == pygame.MOUSEWHEEL and not panel.open:
                 scroll_max = max(0, len(a.list) - 12)
                 scroll = max(0, min(scroll_max, scroll - event.y))
-
         a.ended()
 
         if downloading["active"]:
@@ -1798,16 +1789,11 @@ def play_gui():
             downloading["active"] = False
             continue
 
-        if a.paused:
-            b_play.text = "继续"
-        elif a.playing:
-            b_play.text = "暂停"
-        else:
-            b_play.text = "播放"
-
+        if a.paused: b_play.text = "继续"
+        elif a.playing: b_play.text = "暂停"
+        else: b_play.text = "播放"
         fill_bg(screen)
         screen.blit(F_TITLE.render(WINDOW_TITLE, True, C_ACCENT), (60, 20))
-
         if a.idx >= 0 and a.list:
             name = os.path.basename(a.list[a.idx])
             if len(name) > 46:
@@ -1816,23 +1802,18 @@ def play_gui():
         else:
             info_s = F_NORM.render("未在播放", True, C_DIM)
         screen.blit(info_s, (60, 420))
-
         draw_bar(screen, a)
         draw_list(screen, a, scroll)
         draw_lyric(screen, a)
         draw_vol(screen, a)
         for b in buttons:
             b.draw(screen)
-
         hint = F_SMALL.render(
             "空格:播放/暂停  S:停止  ←→:快退/快进  N/P:上下首  ↑↓:音量  F:搜索",
             True, C_DIM
         )
         screen.blit(hint, (60, 610))
-
-        if panel.open:
-            panel.draw(screen, dt)
-
+        if panel.open: panel.draw(screen, dt)
         if deleting["active"]:
             idx = deleting["idx"]
             fname = os.path.basename(a.list[idx]) if 0 <= idx < len(a.list) else "?"
@@ -1842,9 +1823,7 @@ def play_gui():
                 [("删除", C_DANGER), ("取消", C_BTN)],
                 deleting["hover"]
             )
-
         pygame.display.flip()
-
     info("退出，释放资源")
     pygame.quit()
     info("程序结束")
@@ -1859,6 +1838,14 @@ class fetch_bili():
         22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
     ]
   def __init__(self):
+     if hasattr(sys,"ps1"):
+       print("\033[1;32m欢迎使用fetch_bili\033[0m")
+       print("\033[1;31m请勿用于非法用途\033[0m")
+       print("\033[1;34m此提示仅在交互模式中给出\033[0m")
+       print("\033[1;35m内部可调用函数: \033[0m")
+       for _ in dir(self):
+        if not _.startswith("_") and callable(getattr(self,_)):
+         print(f"\033[1;33m-> {_}\033[0m")
      self.API_TIMEOUT = API_TIMEOUT
      self.HTTP_PROXY = HTTP_PROXY
      self.term_w, self.term_h = self.get_terminal_size()
@@ -1878,6 +1865,7 @@ class fetch_bili():
          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
          "Connection": "keep-alive",
      })
+     self.cookies_domain = ".bilibili.com"
      self._mixin_key = None
      self._mixin_key_expiry = 0
      try: self.session.get("https://www.bilibili.com/", timeout=10)
@@ -1897,7 +1885,24 @@ class fetch_bili():
      self.api_login_poll = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll"
      self.api_view = "https://api.bilibili.com/x/web-interface/view"
      self.api_playurl = "https://api.bilibili.com/x/player/playurl"
-  
+     self.api_danmaku_proto = "https://api.bilibili.com/x/v2/dm/web/seg.so"
+     self.api_danmaku_history = "https://api.bilibili.com/x/v2/dm/web/history/seg.so"
+     self.api_user_card = "https://api.bilibili.com/x/web-interface/card"
+     self.api_user_stat = "https://api.bilibili.com/x/relation/stat"
+     self.api_user_space_info = "https://api.bilibili.com/x/space/acc/info"
+     self.api_user_videos = "https://api.bilibili.com/x/space/wbi/arc/search"
+     self.api_relation_modify = "https://api.bilibili.com/x/relation/modify"
+     self.api_like = "https://api.bilibili.com/x/web-interface/archive/like"
+     self.api_coin = "https://api.bilibili.com/x/web-interface/coin/add"
+     self.api_fav = "https://api.bilibili.com/x/v3/fav/resource/deal"
+     self.api_audio_info = "https://www.bilibili.com/audio/music-service-c/web/song/info"
+     self.api_audio_url = "https://www.bilibili.com/audio/music-service-c/web/url"
+     self.api_danmaku_xml = "https://api.bilibili.com/x/v1/dm/list.so"
+     self.api_fav_folders = "https://api.bilibili.com/x/v3/fav/folder/created/list"
+     self.api_comment = "https://api.bilibili.com/x/v2/reply"
+     self.api_comment_reply = "https://api.bilibili.com/x/v2/reply/reply"
+     
+     
   def parse_bvid(self, url):
    m = re.search(r'(BV[0-9A-Za-z]{10})', url)
    if m: return m.group(1)
@@ -1915,14 +1920,52 @@ class fetch_bili():
     tmp //= BASE
    bv.extend(arr)
    return "".join(bv)
-   
-  def download_link(self, target, save_path=".", page=1, mode="both", qn=None):
-   bvid = self.parse_bvid(target)
+  
+  def download_link(self,target,save_path=".",page=1,mode="both",qn=None):
+   if re.findall(r"https://b23.tv/",target):
+    print("检测到短链接，正在跳转到长链接")
+    target = requests.get(url=target,headers=self.session.headers,allow_redirects=True).url
+   audio_link=re.search(r"/audio/au(\d+)",target)
+   if audio_link: return self.download_audio(audio_link.group(1),save_path=save_path)
+   bvid=self.parse_bvid(target)
    if not bvid:
     print(f"无法识别: {target}")
     return False
-   return self.download_video(bvid,save_path=save_path,page=page,mode=mode,qn=qn,)
-  
+   return self.download_video(bvid,save_path=save_path,page=page,mode=mode,qn=qn)
+   
+  def download_audio(self, sid, save_path=".", filename=None):
+    info = self.get_audio_info(sid)
+    if info.get("code") != 0:
+        print(f"获取音频信息失败: {info.get('msg')}")
+        return False
+    title = info["data"].get("title", str(sid))
+    safe_title = self._safe_filename(title) if not filename else self._safe_filename(filename)
+
+    url_data = self.get_audio_url(sid)
+    if url_data.get("code") != 0:
+        print(f"获取音频地址失败: {url_data.get('msg')}")
+        return False
+    urls = url_data["data"].get("cdns") or []
+    if not urls:
+        print("没有可用音频地址")
+        return False
+    audio_url = urls[0]
+
+    ext = ".m4a" if ".m4a" in audio_url else ".mp3"
+    output = os.path.join(save_path, f"{safe_title}{ext}")
+    headers = {"Referer": "https://www.bilibili.com", "User-Agent": self.session.headers["User-Agent"]}
+    resp = self.session.get(audio_url, headers=headers, stream=True, timeout=30)
+    total = int(resp.headers.get("content-length", 0))
+    current = 0
+    with open(output, "wb") as f:
+        for chunk in resp.iter_content(chunk_size=8192):
+            if not chunk: continue
+            f.write(chunk)
+            current += len(chunk)
+            self.progress_bar(current, total, prefix="下载音频", suffix=os.path.basename(output))
+    print(f"  已保存: {output}")
+    return output
+    
   def download_video(self, bvid, save_path=".", page=1, mode="both", qn=None):
     info=self.bili_curl(self.api_view,params={"bvid": bvid},return_type="json").json()
     if info.get("code") != 0:
@@ -2105,7 +2148,7 @@ class fetch_bili():
                 cookie = http.cookiejar.Cookie(
                     version=0, name=name, value=value,
                     port=None, port_specified=False,
-                    domain=".bilibili.com", domain_specified=True,
+                    domain=self.cookies_domain, domain_specified=True,
                     domain_initial_dot=True,
                     path="/", path_specified=True,
                     secure=False, expires=None,
@@ -2205,7 +2248,7 @@ class fetch_bili():
      try: browsers[idx]
      except: return browsers
      try:
-        self.cookies=getattr(browser_cookie3,browsers[1])(domain_name=".bilibili.com")
+        self.cookies=getattr(browser_cookie3,browsers[1])(domain_name=self.cookies_domain)
         return True
      except Exception:
         self.cookies = None
@@ -2227,7 +2270,8 @@ class fetch_bili():
      except Exception as err: 
        data = {"code": -1, "message": f"请求错误: {err}", "data": None}
        return type("R", (), {"json": lambda self: data})()
-     if return_type == "json":
+     if return_type == "raw": return resource
+     elif return_type == "json":
       try: data = resource.json()
       except Exception as err:
          data = {"code": -1, "message": f"返回数据不是json: {err}", "data": resource.text}
@@ -2242,820 +2286,1317 @@ class fetch_bili():
   def search(self,search,pn=1,idx=0,wbi=False): return self.bili_curl(self.api_search,headers={"Referer": "https://search.bilibili.com"},params={"order": self.search_order[idx],"keyword": search,"page_size": self.fetch_ps,"page": pn},wbi=wbi,return_type="json").json()
   def up_search(self,search,pn=1,idx=0,wbi=False): return self.bili_curl(self.api_up_search,headers={"Referer": "https://search.bilibili.com"},params={"search_type": self.search_type[idx],"keyword": search,"page_size": self.fetch_ps,"page": pn},wbi=wbi,return_type="json").json()
   def do_search(self,search,pn=1,idx=0,wbi=False): return self.bili_curl(self.api_do_search,headers={"Referer": "https://search.bilibili.com"},params={"search_type": self.search_do_type[idx],"keyword": search,"page_size": self.fetch_ps,"page": pn},wbi=wbi,return_type="json").json()
+  def get_user_card(self,mid): return self.bili_curl(self.api_user_card,params={"mid": mid},return_type="json").json()
+  def get_user_stat(self,mid): return self.bili_curl(self.api_user_stat,params={"vmid": mid},return_type="json").json()
+  def get_user_videos(self,mid,pn=1,ps=20): return self.bili_curl(self.api_user_videos,params={"mid": mid,"pn": pn,"ps": ps,"order": "pubdate"},wbi=True,return_type="json").json()
+  def modify_relation(self,fid,act=1): return self.bili_curl(self.api_relation_modify,params={"fid": fid,"act": act,"re_src": 11,"csrf": self.session.cookies.get("bili_jct","")},request_type="POST",return_type="json").json()
+  def like_video(self,bvid,like=1): return self.bili_curl(self.api_like,params={"bvid": bvid,"like": like,"csrf": self.session.cookies.get("bili_jct","")},request_type="POST",return_type="json").json()
+  def add_coin(self,bvid,multiply=1,select_like=0): return self.bili_curl(self.api_coin,params={"bvid": bvid,"multiply": multiply,"select_like": select_like,"csrf": self.session.cookies.get("bili_jct","")},request_type="POST",return_type="json").json()
+  def get_audio_info(self,sid): return self.bili_curl(self.api_audio_info,params={"sid": sid},return_type="json").json()
+  def get_audio_url(self,sid): return self.bili_curl(self.api_audio_url,params={"sid": sid},return_type="json").json()
+  def get_view(self,bvid): return self.bili_curl(self.api_view,params={"bvid": bvid},return_type="json").json()
+  def get_danmaku(self,oid,segment=1): return self.bili_curl(self.api_danmaku_proto,params={"oid": oid,"segment": segment},return_type="raw")
+  def get_danmaku_history(self,oid,date): return self.bili_curl(self.api_danmaku_history,params={"oid": oid,"date": date},return_type="raw")
+  def get_danmaku_xml(self,cid): return self.bili_curl(self.api_danmaku_xml,params={"oid": cid},return_type="raw")
+  def get_user_space_info(self,mid): return self.bili_curl(self.api_user_space_info,params={"mid": mid},return_type="json").json()
+  def get_fav_folders(self,mid): return self.bili_curl(self.api_fav_folders,params={"up_mid": mid},return_type="json").json()
+  def fav_video(self,rid,add_media_ids="",del_media_ids=""): return self.bili_curl(self.api_fav,params={"rid": rid,"type": 2,"add_media_ids": add_media_ids,"del_media_ids": del_media_ids,"csrf": self.session.cookies.get("bili_jct","")},request_type="POST",return_type="json").json()
+  def get_comment(self,oid,type_=1,pn=1,ps=20): return self.bili_curl(self.api_comment,params={"type": type_,"oid": oid,"pn": pn,"ps": ps},return_type="json").json()
+  def get_comment_reply(self,oid,root,pn=1,ps=20): return self.bili_curl(self.api_comment_reply,params={"type": 1,"oid": oid,"root": root,"pn": pn,"ps": ps},return_type="json").json()
 
 
-import curses, re, html, os, json, time, subprocess, sys, hashlib
-from datetime import datetime
-from pathlib import Path
 
-TYPES = ["用户", "视频", "番剧", "影视", "直播", "直播间", "专栏", "话题", "UP主", "相册"]
-TYPE_VALUES = ["bili_user", "video", "media_bangumi", "media_ft", "live", "live_room", "article", "topic", "user", "photo"]
-BROWSERS = ["chrome", "chromium", "firefox", "librewolf", "opera", "opera_gx", "edge", "brave", "vivaldi", "arc", "safari", "w3m", "lynx"]
+TYPES = ["用户", "视频", "番剧", "影视", "直播", "直播间", "专栏", "话题", "UP主", "相册", "音频", "音频专辑", "音频UP主"]
+TYPE_VALUES = ["bili_user", "video", "media_bangumi", "media_ft", "live", "live_room", "article", "topic", "user", "photo", "audio", "audio_album", "audio_up"]
+BROWSERS = fetch_bili().load_cookies_in_browser()
 QUALITY = [("360P", 16), ("480P", 32), ("720P", 64), ("1080P", 80), ("1080P+", 112), ("1080P60", 116), ("4K", 120)]
 NEED_LOGIN_QN = {64, 80, 112}
 NEED_VIP_QN = {116, 120}
-
-
-def dw(s):
-  return sum(2 if ord(c) > 0x2E80 else 1 for c in s)
-def cx(t, w):
-  return max(0, (w - dw(t)) // 2)
-def tr(t, w):
-  o, n = "", 0
-  for c in t:
+def display_width(text): return sum(2 if ord(c) > 0x2E80 else 1 for c in text)
+def center_x(text, width): return max(0, (width - display_width(text)) // 2)
+def truncate(text, width):
+  output, used = "", 0
+  for c in text:
     cw = 2 if ord(c) > 0x2E80 else 1
-    if n + cw > w: break
-    o += c; n += cw
-  return o
-def sa(ss, y, x, t, a=0):
+    if used + cw > width: break
+    output += c
+    used += cw
+  return output
+def safe_addstr(screen, y, x, text, attr=0):
   try:
-    h, w = ss.getmaxyx()
-    if y < 0 or y >= h or x < 0 or x >= w: return
-    m = w - x - 1
-    if m <= 0: return
-    ss.addstr(y, x, tr(t, m), a)
-  except curses.error: pass
-def box(ss, top, left, h, w, c, title=None):
-  if w < 2 or h < 2: return
-  a = curses.color_pair(c)
-  sa(ss, top, left, "┌" + "─"*(w-2) + "┐", a)
-  for i in range(1, h-1): sa(ss, top+i, left, "│", a); sa(ss, top+i, left+w-1, "│", a)
-  sa(ss, top+h-1, left, "└" + "─"*(w-2) + "┘", a)
-  if title: sa(ss, top, left+2, f" {title} ", a | curses.A_BOLD)
-
-
+    screen_height, screen_width = screen.getmaxyx()
+    if y < 0 or y >= screen_height or x < 0 or x >= screen_width: return
+    max_length = screen_width - x - 1
+    if max_length <= 0: return
+    screen.addstr(y, x, truncate(text, max_length), attr)
+  except curses.error:
+    pass
+def draw_box(screen, top, left, height, width, color, title=None):
+  if width < 2 or height < 2: return
+  attr = curses.color_pair(color)
+  safe_addstr(screen, top, left, "┌" + "─" * (width - 2) + "┐", attr)
+  for i in range(1, height - 1):
+    safe_addstr(screen, top + i, left, "│", attr)
+    safe_addstr(screen, top + i, left + width - 1, "│", attr)
+  safe_addstr(screen, top + height - 1, left, "└" + "─" * (width - 2) + "┘", attr)
+  if title:
+    safe_addstr(screen, top, left + 2, f" {title} ", attr | curses.A_BOLD)
 class Dialog:
-  def __init__(self, title, items, buttons, kind="list", default=0, checks=None):
+  def __init__(self, title, items, buttons, kind="list", default=0, checks=None, exclusive_groups=None):
     self.title, self.items, self.buttons, self.kind = title, items, buttons, kind
-    self.cursor, self.scroll, self.btn_cursor = default, 0, 0
+    self.cursor, self.scroll, self.button_cursor = default, 0, 0
     self.checks = checks or [False] * len(items)
-    self.editing, self.edit_buf = False, ""
+    self.editing, self.edit_buffer = False, ""
     self.result, self.running, self.win = None, True, None
+    self.exclusive_groups = exclusive_groups or []
 
-  def size(self, ss):
-    h, w = ss.getmaxyx()
-    self.dh = min(len(self.items) + 4, h - 4)
-    self.dw = min(64, w - 4)
-    self.top = (h - self.dh) // 2
-    self.left = (w - self.dw) // 2
+  def size(self, screen):
+    screen_height, screen_width = screen.getmaxyx()
+    self.dialog_height = min(len(self.items) + 4, screen_height - 4)
+    self.dialog_width = min(64, screen_width - 4)
+    self.dialog_top = (screen_height - self.dialog_height) // 2
+    self.dialog_left = (screen_width - self.dialog_width) // 2
 
-  def draw(self, ss):
-    self.size(ss)
-    if self.win is None: self.win = curses.newwin(self.dh, self.dw, self.top, self.left)
+  def draw(self, screen):
+    self.size(screen)
+    if self.win is None:
+      self.win = curses.newwin(self.dialog_height, self.dialog_width, self.dialog_top, self.dialog_left)
     self.win.erase()
     self.win.box()
-    try: self.win.addstr(0, 2, f" {self.title} ", curses.A_BOLD)
-    except curses.error: pass
-    visible = self.dh - 4
-    if self.cursor < self.scroll: self.scroll = self.cursor
-    if self.cursor >= self.scroll + visible: self.scroll = self.cursor - visible + 1
-    for i in range(visible):
-      idx = self.scroll + i
-      if idx >= len(self.items): break
-      line = str(self.items[idx])
-      if self.kind in ("check", "form") and idx < len(self.checks):
-        line = f"[{'*' if self.checks[idx] else ' '}] {line}"
-      if self.editing and idx == self.cursor:
-        k = line.rsplit(":", 1)[0] if ":" in line else line
-        line = f"{k}: {self.edit_buf}_"
-      a = curses.A_REVERSE | curses.A_BOLD if idx == self.cursor else curses.A_NORMAL
-      line = tr(line, self.dw - 4)
-      pad = (self.dw - 4) - dw(line)
-      if pad > 0: line += " " * pad
-      try: self.win.addstr(1 + i, 2, line, a)
-      except curses.error: pass
-    if len(self.items) > visible:
-      for i in range(self.dh - 2):
-        c = curses.color_pair(8) if i < visible else curses.color_pair(11)
-        try: self.win.addstr(1 + i, self.dw - 1, "|", c)
-        except curses.error: pass
-    self.btn_pos = []
-    total = sum(dw(f" {b['label']} ") + 2 for b in self.buttons)
-    bx = max(1, (self.dw - total) // 2)
-    for bi, b in enumerate(self.buttons):
-      label = f" {b['label']} "
-      a = curses.color_pair(4) | curses.A_BOLD if bi == self.btn_cursor else curses.A_NORMAL
-      try: self.win.addstr(self.dh - 2, bx, label, a)
-      except curses.error: pass
-      self.btn_pos.append((bx, bx + dw(label)))
-      bx += dw(label) + 2
+    try:
+      self.win.addstr(0, 2, f" {self.title} ", curses.A_BOLD)
+    except curses.error:
+      pass
+    visible_lines = self.dialog_height - 4
+    if self.cursor < self.scroll:
+      self.scroll = self.cursor
+    if self.cursor >= self.scroll + visible_lines:
+      self.scroll = self.cursor - visible_lines + 1
+    if self.scroll + visible_lines > len(self.items):
+      self.scroll = max(0, len(self.items) - visible_lines)
+    for line_index in range(visible_lines):
+      index = self.scroll + line_index
+      if index >= len(self.items): break
+      if index == self.cursor:
+        prefix = "➜ "
+        attr = curses.A_REVERSE | curses.A_BOLD
+      else:
+        prefix = "  "
+        attr = curses.A_NORMAL
+      line = str(self.items[index])
+      if self.kind in ("check", "form") and index < len(self.checks):
+        line = f"[{'*' if self.checks[index] else ' '}] {line}"
+      if self.editing and index == self.cursor:
+        key = line.rsplit(":", 1)[0] if ":" in line else line
+        line = f"{key}: {self.edit_buffer}_"
+      line = prefix + truncate(line, self.dialog_width - 4 - display_width(prefix))
+      pad = (self.dialog_width - 4) - display_width(line)
+      if pad > 0:
+        line += " " * pad
+      try:
+        self.win.addstr(1 + line_index, 2, line, attr)
+      except curses.error:
+        pass
+    if len(self.items) > visible_lines:
+      for i in range(self.dialog_height - 2):
+        color = curses.color_pair(8) if i < visible_lines else curses.color_pair(11)
+        try:
+          self.win.addstr(1 + i, self.dialog_width - 1, "|", color)
+        except curses.error:
+          pass
+    self.button_positions = []
+    total_width = sum(display_width(f" {button['label']} ") + 2 for button in self.buttons)
+    button_x = max(1, (self.dialog_width - total_width) // 2)
+    for button_index, button in enumerate(self.buttons):
+      label = f" {button['label']} "
+      attr = curses.color_pair(4) | curses.A_BOLD if button_index == self.button_cursor else curses.A_NORMAL
+      try:
+        self.win.addstr(self.dialog_height - 2, button_x, label, attr)
+      except curses.error:
+        pass
+      self.button_positions.append((button_x, button_x + display_width(label)))
+      button_x += display_width(label) + 2
     self.win.refresh()
 
   def _commit_edit(self):
     if ":" in self.items[self.cursor]:
-      k = self.items[self.cursor].rsplit(":", 1)[0]
-      self.items[self.cursor] = f"{k}: {self.edit_buf}"
-    else: self.items[self.cursor] = self.edit_buf
+      key = self.items[self.cursor].rsplit(":", 1)[0]
+      self.items[self.cursor] = f"{key}: {self.edit_buffer}"
+    else:
+      self.items[self.cursor] = self.edit_buffer
     self.editing = False
 
-  def handle_key(self, ss, key):
+  def _toggle_check(self, index):
+    if index >= len(self.checks): return
+    self.checks[index] = not self.checks[index]
+    if self.checks[index]:
+      for group in self.exclusive_groups:
+        if index in group:
+          for other in group:
+            if other != index:
+              self.checks[other] = False
+          break
+
+  def handle_key(self, screen, key):
     if self.editing:
       if isinstance(key, str):
         if key in ("\n", "\r"): self._commit_edit()
         elif key == "\x1b": self.editing = False
-        elif key in ("\x7f", "\b"): self.edit_buf = self.edit_buf[:-1]
-        elif ord(key) >= 32: self.edit_buf += key
-      elif key == curses.KEY_BACKSPACE: self.edit_buf = self.edit_buf[:-1]
+        elif key in ("\x7f", "\b"): self.edit_buffer = self.edit_buffer[:-1]
+        elif ord(key) >= 32: self.edit_buffer += key
+      elif key == curses.KEY_BACKSPACE:
+        self.edit_buffer = self.edit_buffer[:-1]
       return
     if key == curses.KEY_UP:
       if self.cursor > 0: self.cursor -= 1
     elif key == curses.KEY_DOWN:
       if self.cursor < len(self.items) - 1: self.cursor += 1
-    elif key == curses.KEY_PPAGE: self.cursor = max(0, self.cursor - (self.dh - 4))
-    elif key == curses.KEY_NPAGE: self.cursor = min(len(self.items) - 1, self.cursor + (self.dh - 4))
-    elif key == curses.KEY_HOME: self.cursor = 0
-    elif key == curses.KEY_END: self.cursor = len(self.items) - 1
-    elif key == " " and self.kind == "check" and self.cursor < len(self.checks):
-      self.checks[self.cursor] = not self.checks[self.cursor]
+    elif key == curses.KEY_PPAGE:
+      self.cursor = max(0, self.cursor - (self.dialog_height - 4))
+    elif key == curses.KEY_NPAGE:
+      self.cursor = min(len(self.items) - 1, self.cursor + (self.dialog_height - 4))
+    elif key == curses.KEY_HOME:
+      self.cursor = 0
+    elif key == curses.KEY_END:
+      self.cursor = len(self.items) - 1
+    elif key == " " and self.kind == "check":
+      self._toggle_check(self.cursor)
+    elif key in ("\n", "\r") and self.kind == "check":
+      self._toggle_check(self.cursor)
     elif key in ("\n", "\r") and self.kind == "form":
       if ":" in self.items[self.cursor]:
-        self.edit_buf = self.items[self.cursor].rsplit(":", 1)[1].strip()
+        self.edit_buffer = self.items[self.cursor].rsplit(":", 1)[1].strip()
         self.editing = True
       else:
-        b = self.buttons[self.btn_cursor]
-        self.result = {"action": b["action"], "cursor": self.cursor, "checks": list(self.checks)}
+        button = self.buttons[self.button_cursor]
+        self.result = {"action": button["action"], "cursor": self.cursor, "checks": list(self.checks)}
         self.running = False
-    elif key == "\t": self.btn_cursor = (self.btn_cursor + 1) % len(self.buttons)
-    elif key == curses.KEY_LEFT: self.btn_cursor = (self.btn_cursor - 1) % len(self.buttons)
-    elif key == curses.KEY_RIGHT: self.btn_cursor = (self.btn_cursor + 1) % len(self.buttons)
+    elif key == "\t":
+      self.button_cursor = (self.button_cursor + 1) % len(self.buttons)
+    elif key == curses.KEY_LEFT:
+      self.button_cursor = (self.button_cursor - 1) % len(self.buttons)
+    elif key == curses.KEY_RIGHT:
+      self.button_cursor = (self.button_cursor + 1) % len(self.buttons)
     elif key in ("\n", "\r"):
-      b = self.buttons[self.btn_cursor]
-      self.result = {"action": b["action"], "cursor": self.cursor, "checks": list(self.checks)}
+      button = self.buttons[self.button_cursor]
+      self.result = {"action": button["action"], "cursor": self.cursor, "checks": list(self.checks)}
       self.running = False
     elif key == "\x1b":
       self.result = {"action": "cancel"}
       self.running = False
 
-  def handle_mouse(self, ss, mx, my, bs):
-    rx, ry = mx - self.left, my - self.top
-    if rx < 0 or rx >= self.dw or ry < 0 or ry >= self.dh: return
-    if bs & curses.BUTTON4_PRESSED: self.cursor = max(0, self.cursor - 1); return
-    if bs & curses.BUTTON5_PRESSED: self.cursor = min(len(self.items) - 1, self.cursor + 1); return
-    if ry == self.dh - 2:
-      for bi, (b1, b2) in enumerate(self.btn_pos):
-        if b1 <= rx < b2:
-          self.result = {"action": self.buttons[bi]["action"], "cursor": self.cursor, "checks": list(self.checks)}
+  def handle_mouse(self, screen, mouse_x, mouse_y, button_state):
+    relative_x = mouse_x - self.dialog_left
+    relative_y = mouse_y - self.dialog_top
+    if relative_x < 0 or relative_x >= self.dialog_width or relative_y < 0 or relative_y >= self.dialog_height: return
+    if button_state & curses.BUTTON4_PRESSED:
+      self.cursor = max(0, self.cursor - 1)
+      return
+    if button_state & curses.BUTTON5_PRESSED:
+      self.cursor = min(len(self.items) - 1, self.cursor + 1)
+      return
+    if relative_y == self.dialog_height - 2:
+      for button_index, (button_start, button_end) in enumerate(self.button_positions):
+        if button_start <= relative_x < button_end:
+          self.result = {"action": self.buttons[button_index]["action"], "cursor": self.cursor, "checks": list(self.checks)}
           self.running = False
           return
-    if 1 <= ry < self.dh - 2:
-      idx = self.scroll + (ry - 1)
-      if 0 <= idx < len(self.items):
-        self.cursor = idx
-        if self.kind == "check" and idx < len(self.checks): self.checks[idx] = not self.checks[idx]
+    if 1 <= relative_y < self.dialog_height - 2:
+      index = self.scroll + (relative_y - 1)
+      if 0 <= index < len(self.items):
+        self.cursor = index
+        if self.kind == "check":
+          self._toggle_check(index)
 
-  def run(self, ss, draw_bg):
+  def run(self, screen, draw_background):
     while self.running:
-      draw_bg(ss)
-      ss.refresh()
-      self.draw(ss)
-      try: ss.timeout(200); key = ss.get_wch()
-      except curses.error: continue
-      except KeyboardInterrupt: break
+      if self.win is None:
+        draw_background(screen)
+        screen.refresh()
+      self.draw(screen)
+      try:
+        screen.timeout(-1)
+        key = screen.get_wch()
+      except curses.error:
+        continue
+      except KeyboardInterrupt:
+        break
       if key == curses.KEY_MOUSE:
-        try: _, mx, my, _, bs = curses.getmouse()
-        except Exception: continue
-        self.handle_mouse(ss, mx, my, bs)
-      else: self.handle_key(ss, key)
+        try:
+          _, mouse_x, mouse_y, _, button_state = curses.getmouse()
+        except Exception:
+          continue
+        self.handle_mouse(screen, mouse_x, mouse_y, button_state)
+      else:
+        self.handle_key(screen, key)
+    draw_background(screen)
+    screen.refresh()
     if self.win:
-      self.win.clear(); self.win.refresh(); del self.win; self.win = None
-    ss.touchwin(); ss.refresh()
+      self.win.clear()
+      self.win.refresh()
+      del self.win
+      self.win = None
+    screen.touchwin()
+    screen.refresh()
     return self.result
-
-
-def _md5(s):
-  return hashlib.md5(str(s).encode()).hexdigest()
-
-
+def _md5(text): return hashlib.md5(str(text).encode()).hexdigest()
 def bili_tui(client, player=None, conf_file=None, music_dir=None):
   def conf_path():
     if conf_file: return conf_file
     try:
-      sd = os.path.dirname(os.path.abspath(__file__)); n = os.path.splitext(os.path.basename(__file__))[0]
+      script_dir = os.path.dirname(os.path.abspath(__file__))
+      name = os.path.splitext(os.path.basename(__file__))[0]
     except NameError:
-      sd = os.getcwd(); n = "config"
-    return os.path.join(sd, f"{n}.conf")
-
-  MUSIC_DIR = music_dir or "/storage/emulated/0/Music"
-
-  DEFAULTS = {"COOKIE_PATH": "cookies.txt", "CACHE_DIR": "cache", "HTTP_PROXY": "", "download_mode": "audio", "fetch_ps": "20", "use_term_height": "0", "browser_idx": "-1", "dlg_mode": "audio", "dlg_qn": "80", "dlg_page": "1", "play_qn": "80", "play_page": "1"}
-
+      script_dir = os.getcwd()
+      name = "config"
+    return os.path.join(script_dir, f"{name}.conf")
+  MUSIC_DIR = music_dir or "/storage/emulated/0/Music" #用安卓的都是人上人
+  DEFAULTS = {"COOKIE_PATH": "cookies.txt", "CACHE_DIR": "cache", "HTTP_PROXY": "", "download_mode": "both", "fetch_ps": "20", "use_term_height": "0", "browser_idx": "-1", "dlg_mode": "both", "dlg_qn": "80", "dlg_page": "1", "play_qn": "80", "play_page": "1"}
   def load_conf():
-    d = dict(DEFAULTS)
-    p = conf_path()
-    if not os.path.exists(p): return d
+    data = dict(DEFAULTS)
+    path = conf_path()
+    if not os.path.exists(path): return data
     try:
-      for line in open(p, encoding="utf-8"):
+      for line in open(path, encoding="utf-8"):
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line: continue
-        k, v = line.split("=", 1)
-        if k.strip() in d: d[k.strip()] = v.strip()
-    except Exception: pass
-    return d
-
-  def save_conf(d):
+        key, value = line.split("=", 1)
+        if key.strip() in data: data[key.strip()] = value.strip()
+    except Exception:
+      pass
+    return data
+  def save_conf(data):
     try:
-      with open(conf_path(), "w", encoding="utf-8") as f:
-        for k, v in d.items(): f.write(f"{k}={v}\n")
+     path = conf_path()
+     try:
+      with open(path, "r", encoding="utf-8") as f: lines = f.readlines()
+     except FileNotFoundError: lines = []
+     keys = set(data.keys()) ; updated = set() ; new_lines = []
+     for line in lines:
+      stripped = line.rstrip("\n")
+      if not stripped or stripped.startswith("#") or "=" not in stripped:
+       new_lines.append(line)
+       continue
+      key = stripped.split("=", 1)[0].strip()
+      if key in keys:
+       new_lines.append(f"{key}={data[key]}\n")
+       updated.add(key)
+      else: new_lines.append(line)
+     for key in keys - updated: new_lines.append(f"{key}={data[key]}\n")
+     with open(path, "w", encoding="utf-8") as f: f.writelines(new_lines)
     except Exception: pass
-
   conf = load_conf()
   COOKIE_PATH, CACHE_DIR = conf["COOKIE_PATH"], conf["CACHE_DIR"]
   HTTP_PROXY = conf["HTTP_PROXY"] or None
   DOWNLOAD_MODE, FETCH_PS = conf["download_mode"], int(conf["fetch_ps"] or 20)
-  USE_TERM_H, BROWSER_IDX = conf["use_term_height"] == "1", int(conf["browser_idx"])
+  USE_TERM_HEIGHT, BROWSER_INDEX = conf["use_term_height"] == "1", int(conf["browser_idx"])
   DLG_MODE, DLG_QN, DLG_PAGE = conf["dlg_mode"], int(conf["dlg_qn"]), int(conf["dlg_page"])
   PLAY_QN, PLAY_PAGE = int(conf["play_qn"]), int(conf["play_page"])
-
-  try: os.makedirs(CACHE_DIR, exist_ok=True)
-  except Exception: pass
-
-  def cl(k, age=36000):
-    p = os.path.join(CACHE_DIR, re.sub(r'[\\/:*?"<>|]', "_", k) + ".json")
-    if not os.path.exists(p): return None
+  try:
+    os.makedirs(CACHE_DIR, exist_ok=True)
+  except Exception:
+    pass
+  def cache_load(cache_key, age=36000):
+    path = os.path.join(CACHE_DIR, re.sub(r'[\\/:*?"<>|]', "_", cache_key) + ".json")
+    if not os.path.exists(path): return None
     try:
-      o = json.load(open(p, encoding="utf-8"))
-      return None if time.time() - o.get("_ts", 0) > age else o.get("data")
-    except Exception: return None
-
-  def cs(k, d):
+      obj = json.load(open(path, encoding="utf-8"))
+      return None if time.time() - obj.get("_ts", 0) > age else obj.get("data")
+    except Exception:
+      return None
+  def cache_save(cache_key, data):
     try:
-      p = os.path.join(CACHE_DIR, re.sub(r'[\\/:*?"<>|]', "_", k) + ".json")
-      json.dump({"_ts": time.time(), "data": d}, open(p, "w", encoding="utf-8"), ensure_ascii=False)
-    except Exception: pass
-
-  S = {"edit": False, "ft": False, "q": "", "ti": 1, "mode": "popular", "items": [], "cur": 0, "off": 0, "pg": 1, "tp": 1, "run": True, "login": "未登录", "load": False, "hit": False, "tpos": [], "bprev": (0,0), "bnext": (0,0), "dbtn": {}, "playing": False, "vol": 0.7, "last_click": 0, "last_idx": -1, "temp_ps": None, "pbar": (0,0), "vbar": (0,0), "pbar_row": -1, "vbar_row": -1, "loading_more": False, "msg": "", "dragging": None, "drag_time": 0}
-
-  def clean(s): return html.unescape(re.sub(r'</?em[^>]*>', '', s or "")).strip()
-  def cur_ps():
-    if S["temp_ps"] is not None: return S["temp_ps"]
-    if USE_TERM_H:
+      path = os.path.join(CACHE_DIR, re.sub(r'[\\/:*?"<>|]', "_", cache_key) + ".json")
+      json.dump({"_ts": time.time(), "data": data}, open(path, "w", encoding="utf-8"), ensure_ascii=False)
+    except Exception:
+      pass
+    except Exception:
+      pass
+  state = {"cursor_pos": 0,"editing": False,"type_focused": False,"query": "","type_index": 1,"mode": "popular","items": [],"cursor": 0,"tmp_cursor": 0,"tmp_list_cursor": 0,"down": 0,"page": 1,"total_pages": 1,"running": True,"login": "未登录","loading": False,"from_cache": False,"type_positions": [],"prev_button": (0, 0),"next_button": (0, 0),"more_button": (0, 0),"detail_buttons": {},"detail_actions": {},"detail_item": None,"login_button": (0, 0),"playing": False,"volume": 0.7,"last_click_time": 0,"last_click_index": -1,"temp_page_size": None,"progress_bar": (0, 0),"volume_bar": (0, 0),"progress_bar_row": -1,"volume_bar_row": -1,"loading_more": False,"message": "","dragging": None,"drag_time": 0}
+  def clean(text):return html.unescape(re.sub(r'</?em[^>]*>', '', text or "")).strip()
+  def current_page_size(USE_SEARCH=False):
+    if not USE_SEARCH and state["temp_page_size"] is not None: return state["temp_page_size"]
+    if USE_TERM_HEIGHT:
       try: return max(5, curses.LINES - 14)
       except Exception: return FETCH_PS
     return FETCH_PS
 
-  def parse(res, t):
-    out = []
-    if not res or res.get("code") != 0: return out, 1
-    d = res.get("data") or {}
-    tot = d.get("numPages") or d.get("pages") or 1
-    for v in d.get("result", []):
-      if t == "video": out.append({"type": "video", "title": clean(v.get("title","")), "id": v.get("bvid",""), "author": clean(v.get("author","")), "play": v.get("play",0), "like": v.get("like",0), "danmaku": v.get("video_review",0), "favorite": v.get("favorites",0), "duration": v.get("duration",""), "pubdate": v.get("pubdate",0), "desc": v.get("description","") or v.get("desc",""), "typename": v.get("typename",""), "pic": v.get("pic","")})
-      elif t == "bili_user": out.append({"type": "user", "title": clean(v.get("uname","")), "id": v.get("mid",""), "usign": v.get("usign",""), "fans": v.get("fans",0), "videos": v.get("videos",0), "level": v.get("level",0), "pic": v.get("upic","")})
-      else: out.append({"type": t, "title": clean(v.get("title") or v.get("uname","")), "id": v.get("bvid","") or v.get("mid",""), "author": clean(v.get("author","")), "play": v.get("play",0), "pic": v.get("pic","")})
-    return out, tot
+  def parse(response, content_type):
+    output = []
+    if not response or response.get("code") != 0: return output, 1
+    data = response.get("data") or {}
+    total = data.get("numPages") or data.get("pages") or 1
+    for video in data.get("result", []):
+      if content_type == "video":
+        output.append({"type": "video", "title": clean(video.get("title","")), "id": video.get("bvid",""), "author": clean(video.get("author","")), "play": video.get("play",0), "like": video.get("like",0), "danmaku": video.get("video_review",0), "favorite": video.get("favorites",0), "duration": video.get("duration",""), "pubdate": video.get("pubdate",0), "desc": video.get("description","") or video.get("desc",""), "typename": video.get("typename",""), "pic": video.get("pic","")})
+      elif content_type == "bili_user":
+        output.append({"type": "user", "title": clean(video.get("uname","")), "id": video.get("mid",""), "usign": video.get("usign",""), "fans": video.get("fans",0), "videos": video.get("videos",0), "level": video.get("level",0), "pic": video.get("upic","")})
+      else:
+        output.append({"type": content_type, "title": clean(video.get("title") or video.get("uname","")), "id": video.get("bvid","") or video.get("mid",""), "author": clean(video.get("author","")), "play": video.get("play",0), "pic": video.get("pic","")})
+    return output, total
 
-  def do_search(pg=1, force=False):
-    if not S["q"]: return (False, "请输入关键词")
-    client.fetch_ps = cur_ps()
-    t = TYPE_VALUES[S["ti"]]; k = f"search_{t}_{S['q']}_{pg}_{cur_ps()}"
+  def do_search(page=1, force=False):
+    if not state["query"]: return (False, "请输入关键词")
+    client.fetch_ps = current_page_size(USE_SEARCH=True)
+    content_type = TYPE_VALUES[state["type_index"]]
+    cache_key = f"search_{content_type}_{state['query']}_{page}_{current_page_size(USE_SEARCH=True)}"
     if not force:
-      c = cl(k)
-      if c: S["items"], S["tp"], S["mode"], S["pg"], S["cur"], S["off"], S["hit"] = c["items"], c["total"], "search", pg, 0, 0, True; return (True, f"[缓存] {len(c['items'])} 条")
-    S["load"] = True
+      cached = cache_load(cache_key)
+      if cached:
+        state["items"], state["total_pages"], state["mode"], state["page"], state["cursor"], state["tmp_cursor"], state["tmp_list_cursor"], state["down"], state["from_cache"] = cached["items"], cached["total"], "search", page, 0, 0, 0, 0, True
+        return (True, f"[缓存] {len(cached['items'])} 条")
+    state["loading"] = True
     try:
-      res = client.do_search(S["q"], pn=pg, idx=S["ti"]); items, tot = parse(res, t)
-      S["items"], S["mode"], S["cur"], S["off"], S["pg"], S["tp"], S["hit"] = items, "search", 0, 0, pg, tot, False
-      cs(k, {"items": items, "total": tot})
-      S["load"] = False
-      return (True, f"找到 {len(items)} 条 (第{pg}/{tot}页)")
+      response = client.do_search(state["query"], pn=page, idx=state["type_index"])
+      items, total = parse(response, content_type)
+      state["items"], state["mode"], state["cursor"], state["tmp_cursor"], state["tmp_list_cursor"], state["down"], state["page"], state["total_pages"], state["from_cache"] = items, "search", 0, 0, 0, 0, page, total, False
+      cache_save(cache_key, {"items": items, "total": total})
+      state["loading"] = False
+      return (True, f"找到 {len(items)} 条 (第{page}/{total}页)")
     except Exception as e:
-      S["load"] = False
+      state["loading"] = False
       return (False, f"搜索失败: {e}")
 
-  def load_list(fn, mode, pg=1, force=False, add=False):
-    client.fetch_ps = cur_ps()
-    k = f"{mode}_{pg}_{cur_ps()}"
-    if not force and not add:
-      c = cl(k)
-      if c: S["items"], S["mode"], S["pg"], S["tp"], S["cur"], S["off"], S["hit"] = c, mode, pg, 1, 0, 0, True; return (True, f"[缓存] {len(c)} 条")
-    S["load"] = True
+  def load_list(fetch_function, mode, page=1, force=False, append=False):
+    client.fetch_ps = current_page_size()
+    cache_key = f"{mode}_{page}_{current_page_size()}"
+    if not force and not append:
+      cached = cache_load(cache_key)
+      if cached:
+        state["items"], state["mode"], state["page"], state["total_pages"], state["cursor"], state["tmp_cursor"], state["tmp_list_cursor"], state["down"], state["from_cache"] = cached, mode, page, 1, 0, 0, 0, 0, True
+        return (True, f"[缓存] {len(cached)} 条")
+    state["loading"] = True
     try:
-      res = fn(pn=pg); d = res.get("data") or {}; items = []
-      for v in d.get("list", []) or d.get("item", []): items.append({"type": "video", "title": clean(v.get("title","")), "id": v.get("bvid",""), "author": clean(v.get("owner",{}).get("name","")), "play": v.get("stat",{}).get("view",0), "like": v.get("stat",{}).get("like",0), "danmaku": v.get("stat",{}).get("danmaku",0), "favorite": v.get("stat",{}).get("favorite",0), "duration": v.get("duration",""), "pubdate": v.get("pubdate",0), "desc": v.get("desc",""), "typename": v.get("tname",""), "pic": v.get("pic","")})
-      if add: S["items"] = S["items"] + items
-      else: S["items"], S["mode"], S["cur"], S["off"], S["pg"], S["tp"], S["hit"] = items, mode, 0, 0, pg, 1, False
-      cs(k, S["items"] if add else items)
-      S["load"] = False
+      response = fetch_function(pn=page)
+      data = response.get("data") or {}
+      items = []
+      for video in data.get("list", []) or data.get("item", []):
+        items.append({"type": "video", "title": clean(video.get("title","")), "id": video.get("bvid",""), "author": clean(video.get("owner",{}).get("name","")), "play": video.get("stat",{}).get("view",0), "like": video.get("stat",{}).get("like",0), "danmaku": video.get("stat",{}).get("danmaku",0), "favorite": video.get("stat",{}).get("favorite",0), "duration": video.get("duration",""), "pubdate": video.get("pubdate",0), "desc": video.get("desc",""), "typename": video.get("tname",""), "pic": video.get("pic","")})
+      if append:
+        state["items"] = state["items"] + items
+      else:
+        state["items"], state["mode"], state["cursor"], state["tmp_cursor"], state["tmp_list_cursor"], state["down"], state["page"], state["total_pages"], state["from_cache"] = items, mode, 0, 0, 0, 0, page, 1, False
+      cache_save(cache_key, state["items"] if append else items)
+      state["loading"] = False
       return (True, f"{mode} {len(items)} 条")
     except Exception as e:
-      S["load"] = False
+      state["loading"] = False
       return (False, f"加载失败: {e}")
 
-  def load_pop(pg=1, f=False, a=False): return load_list(client.get_pop, "popular", pg, f, a)
-  def load_rec(pg=1, f=False, a=False): return load_list(client.get_recommend, "recommend", pg, f, a)
-  def load_his(pg=1, f=False, a=False): return load_list(client.get_history, "history", pg, f, a)
-  def load_tov(pg=1, f=False, a=False): return load_list(client.get_toview, "toview", pg, f, a)
+  def load_pop(page=1, force=False, append=False): return load_list(client.get_pop, "popular", page, force, append)
+  def load_rec(page=1, force=False, append=False): return load_list(client.get_recommend, "recommend", page, force, append)
+  def load_his(page=1, force=False, append=False): return load_list(client.get_history, "history", page, force, append)
+  def load_tov(page=1, force=False, append=False): return load_list(client.get_toview, "toview", page, force, append)
 
-  def upd_login():
-    try: S["login"] = "已登录" if client.check_login() else "未登录"
-    except Exception: S["login"] = "未知"
+  def update_login():
+    try:
+      state["login"] = "已登录" if client.check_login() else "未登录"
+    except Exception:
+      state["login"] = "未知"
 
   def do_login_qr():
     curses.endwin()
     print("即将扫码登录...")
     try:
       ok = client.login_by_qr(path=COOKIE_PATH)
-      S["login"] = "已登录" if ok else "未登录"
-      r = (True, "登录成功") if ok else (False, "登录失败")
-    except KeyboardInterrupt: r = (False, "已取消")
-    except Exception as e: r = (False, f"登录失败: {e}")
+      state["login"] = "已登录" if ok else "未登录"
+      result = (True, "登录成功") if ok else (False, "登录失败")
+    except KeyboardInterrupt:
+      result = (False, "已取消")
+    except Exception as e:
+      result = (False, f"登录失败: {e}")
     input("按回车继续...")
-    curses.doupdate(); upd_login()
-    return r
+    curses.doupdate()
+    update_login()
+    return result
 
   def do_cookies():
     try:
-      if client.load_cookies(COOKIE_PATH): upd_login(); return (True, f"已加载 {COOKIE_PATH}")
+      if client.load_cookies(COOKIE_PATH):
+        update_login()
+        return (True, f"已加载 {COOKIE_PATH}")
       return (False, f"加载失败: {COOKIE_PATH}")
-    except Exception as e: return (False, f"加载失败: {e}")
+    except Exception as e:
+      return (False, f"加载失败: {e}")
 
-  def do_browser(idx):
-    if idx < 0: return (False, "未选浏览器")
+  def do_browser(browser_index):
+    if browser_index < 0: return (False, "未选浏览器")
     curses.endwin()
-    print(f"正在从 {BROWSERS[idx]} 读取 cookies...")
+    print(f"正在从 {BROWSERS[browser_index]} 读取 cookies...")
     try:
-      import browser_cookie3
-    except ModuleNotFoundError:
-      print("正在安装 browser_cookie3...")
-      subprocess.run([sys.executable, "-m", "pip", "install", "browser_cookie3", "pycryptodome", "keyring"], check=True)
-      import browser_cookie3
-    try:
-      fn = getattr(browser_cookie3, BROWSERS[idx])
-      cj = fn(domain_name=".bilibili.com")
-      client.session.cookies.update(cj); client.cookies = client.session.cookies
-      upd_login(); r = (True, "读取成功")
-    except KeyboardInterrupt: r = (False, "已取消")
-    except Exception as e: r = (False, f"读取失败: {e}")
+      load_cookies_in_browser(idx=browser_index)
+      update_login()
+      result = (True, "读取成功")
+    except KeyboardInterrupt:
+      result = (False, "已取消")
+    except Exception as e:
+      result = (False, f"读取失败: {e}")
     input("按回车继续...")
     curses.doupdate()
-    return r
+    return result
 
-  def do_view_cover(it):
-    if not it or not it.get("pic"): return (False, "无封面")
-    url = it["pic"]
+  def do_view_cover(item):
+    if not item or not item.get("pic"): return (False, "无封面")
+    url = item["pic"]
     if url.startswith("//"): url = "https:" + url
-    h = _md5(it.get("id",""))
+    hash_value = _md5(item.get("id",""))
     ext = os.path.splitext(url)[1] or ".jpg"
-    f = os.path.join(CACHE_DIR, f"cover_{h}{ext}")
-    if not os.path.exists(f):
+    filepath = os.path.join(CACHE_DIR, f"cover_{hash_value}{ext}")
+    if not os.path.exists(filepath):
       try:
-        r = client.session.get(url, timeout=10)
-        if r.status_code == 200: open(f, "wb").write(r.content)
-        else: return (False, f"下载封面失败: {r.status_code}")
-      except Exception as e: return (False, f"下载封面失败: {e}")
+        response = client.session.get(url, timeout=10)
+        if response.status_code == 200:
+          open(filepath, "wb").write(response.content)
+        else:
+          return (False, f"下载封面失败: {response.status_code}")
+      except Exception as e:
+        return (False, f"下载封面失败: {e}")
     try:
-      if "com.termux" in os.environ.get("PREFIX", ""): subprocess.run(["termux-open", f])
-      elif os.name == "nt": os.startfile(f)
-      elif sys.platform == "darwin": subprocess.run(["open", f])
-      else: subprocess.run(["xdg-open", f])
+      if "com.termux" in os.environ.get("PREFIX", ""): subprocess.run(["termux-open", filepath])
+      elif os.name == "nt": os.startfile(filepath)
+      elif sys.platform == "darwin": subprocess.run(["open", filepath])
+      else: subprocess.run(["xdg-open", filepath])
       return (True, "已打开")
-    except Exception as e: return (False, f"打开失败: {e}")
-    
-  def do_download(it, mode, qn, page=1):
-    if not it or it.get("type") != "video": return (False, "无选中项")
-    curses.endwin()
-    print(f"开始下载: {it['title']}")
-    try:
-      client.download_video(it["id"], save_path=MUSIC_DIR, page=page, mode=mode, qn=qn)
-      r = (True, "下载完成")
-    except KeyboardInterrupt:
-      curses.doupdate(); return (False, "已取消")
     except Exception as e:
-      curses.doupdate(); return (False, f"下载失败: {e}")
-    # 下载完，找最新下载的音频文件转 MP3
+      return (False, f"打开失败: {e}")
+
+  def do_download(item, mode, quality, page=1):
+    if not item or item.get("type") != "video": return (False, "无选中项")
+    curses.endwin()
+    print(f"开始下载: {item['title']}")
+    try:
+      detail = client.get_view(item["id"])
+      pages = (detail.get("data") or {}).get("pages") or []
+      part_title = item["title"]
+      if pages:
+        page_index = min(page, len(pages)) - 1
+        part_title = pages[page_index].get("part", item["title"])
+      safe_title = client._safe_filename(part_title)
+      client.download_video(item["id"], save_path=MUSIC_DIR, page=page, mode=mode, qn=quality)
+      result = (True, "下载完成")
+    except KeyboardInterrupt:
+      curses.doupdate()
+      return (False, "已取消")
+    except Exception as e:
+      curses.doupdate()
+      return (False, f"下载失败: {e}")
     if mode in ("audio", "both"):
-      latest = None; latest_mtime = 0
+      latest = None
+      latest_mtime = 0
       for name in os.listdir(MUSIC_DIR):
         if name.endswith(".m4a"):
-          p = os.path.join(MUSIC_DIR, name)
-          mt = os.path.getmtime(p)
-          if mt > latest_mtime: latest_mtime = mt; latest = p
+          filepath = os.path.join(MUSIC_DIR, name)
+          mtime = os.path.getmtime(filepath)
+          if mtime > latest_mtime:
+            latest_mtime = mtime
+            latest = filepath
       if latest:
-        mp3 = os.path.splitext(latest)[0] + ".mp3"
-        if not os.path.exists(mp3):
-          print("正在转 MP3...")
-          try:
-            subprocess.run(["ffmpeg", "-y", "-i", latest, "-codec:a", "libmp3lame", "-q:a", "2", mp3], check=True)
-            os.remove(latest)
-            r = (True, "下载完成，已转 MP3")
-          except KeyboardInterrupt:
-            curses.doupdate(); return (False, "已取消")
-          except subprocess.CalledProcessError:
-            r = (True, "下载完成，但转 MP3 失败")
-          except Exception:
-            r = (True, "下载完成，但转 MP3 失败")
+        mp3_path = os.path.join(MUSIC_DIR, f"{safe_title}.mp3")
+        counter = 1
+        base_mp3 = mp3_path
+        while os.path.exists(mp3_path):
+          mp3_path = base_mp3.replace(".mp3", f"_{counter}.mp3")
+          counter += 1
+        print("正在转 MP3...")
+        try:
+          subprocess.run(["ffmpeg", "-y", "-i", latest, "-codec:a", "libmp3lame", "-q:a", "2", mp3_path], check=True)
+          os.remove(latest)
+          result = (True, f"下载完成，已转 MP3: {os.path.basename(mp3_path)}")
+        except KeyboardInterrupt:
+          curses.doupdate()
+          return (False, "已取消")
+        except subprocess.CalledProcessError:
+          result = (True, "下载完成，但转 MP3 失败")
+        except Exception:
+          result = (True, "下载完成，但转 MP3 失败")
     input("按回车继续...")
     curses.doupdate()
-    return r
-    
-  def do_play(it, ss):
-    if not it or it.get("type") != "video": return (False, "无选中项")
-    h = _md5(it["id"])
-    mp3 = os.path.join(CACHE_DIR, f"{h}.mp3")
-    if not os.path.exists(mp3):
+    return result
+
+  def do_play(item, screen):
+    if not item or item.get("type") != "video": return (False, "无选中项")
+    hash_value = _md5(item["id"])
+    mp3_path = os.path.join(CACHE_DIR, f"{hash_value}.mp3")
+    if not os.path.exists(mp3_path):
       curses.endwin()
-      print(f"正在下载音频: {it['title']}")
-      try: client.download_video(it["id"], save_path=CACHE_DIR, page=PLAY_PAGE, mode="audio", qn=PLAY_QN)
+      print(f"正在下载音频: {item['title']}")
+      try:
+        client.download_video(item["id"], save_path=CACHE_DIR, page=PLAY_PAGE, mode="audio", qn=PLAY_QN)
       except KeyboardInterrupt:
-        curses.doupdate(); return (False, "已取消")
+        curses.doupdate()
+        return (False, "已取消")
       except Exception as e:
-        curses.doupdate(); return (False, f"下载音频失败: {e}")
+        curses.doupdate()
+        return (False, f"下载音频失败: {e}")
       found = None
       for name in os.listdir(CACHE_DIR):
-        if name.endswith(".m4a"): found = os.path.join(CACHE_DIR, name); break
+        if name.endswith(".m4a"):
+          found = os.path.join(CACHE_DIR, name)
+          break
       if not found:
-        curses.doupdate(); return (False, "未找到下载的音频")
+        curses.doupdate()
+        return (False, "未找到下载的音频")
       print("正在转 MP3...")
       try:
-        subprocess.run(["ffmpeg", "-y", "-i", found, "-codec:a", "libmp3lame", "-q:a", "2", mp3], check=True)
+        subprocess.run(["ffmpeg", "-y", "-i", found, "-codec:a", "libmp3lame", "-q:a", "2", mp3_path], check=True)
         os.remove(found)
       except KeyboardInterrupt:
-        curses.doupdate(); return (False, "已取消")
+        curses.doupdate()
+        return (False, "已取消")
       except subprocess.CalledProcessError:
-        curses.doupdate(); return (False, "转 MP3 失败，请确认装了 ffmpeg")
+        curses.doupdate()
+        return (False, "转 MP3 失败，请确认装了 ffmpeg")
       except Exception as e:
-        curses.doupdate(); return (False, f"转 MP3 失败: {e}")
+        curses.doupdate()
+        return (False, f"转 MP3 失败: {e}")
       curses.doupdate()
-    if not os.path.exists(mp3): return (False, "MP3 文件不存在")
+    if not os.path.exists(mp3_path): return (False, "MP3 文件不存在")
     if player:
-      try: player.play(Path(mp3)); S["playing"] = True; curses.clear(); return (True, "播放中")
-      except Exception as e: return (False, f"播放失败: {e}")
+      try:
+        player.play(Path(mp3_path))
+        state["playing"] = True
+        screen.clear()
+        return (True, "播放中")
+      except Exception as e:
+        return (False, f"播放失败: {e}")
     return (False, "无播放器")
 
-  def dx_msg(ss, bg, title, text):
-    d = Dialog(title, text.split("\n"), [{"label": "确定", "action": "ok"}], kind="text")
-    d.run(ss, bg)
+  def dx_msg(screen, draw_background, title, text):
+    dialog = Dialog(title, text.split("\n"), [{"label": "确定", "action": "ok"}], kind="text")
+    dialog.run(screen, draw_background)
 
-  def dx_browser(ss, bg):
-    d = Dialog("选择浏览器", BROWSERS, [{"label": "确定", "action": "ok"}, {"label": "取消", "action": "cancel"}])
-    r = d.run(ss, bg)
-    if r and r["action"] == "ok": return r["cursor"]
+  def dx_browser(screen, draw_background):
+    dialog = Dialog("选择浏览器", BROWSERS, [{"label": "确定", "action": "ok"}, {"label": "取消", "action": "cancel"}])
+    result = dialog.run(screen, draw_background)
+    if result and result["action"] == "ok": return result["cursor"]
     return -1
 
-  def dx_login(ss, bg):
-    d = Dialog("登录", ["扫码登录", "加载 cookies", "浏览器 cookies"], [{"label": "确定", "action": "ok"}, {"label": "取消", "action": "cancel"}])
-    r = d.run(ss, bg)
-    if not r or r["action"] != "ok": return
-    if r["cursor"] == 0: ok, msg = do_login_qr(); dx_msg(ss, bg, "登录", msg)
-    elif r["cursor"] == 1: ok, msg = do_cookies(); dx_msg(ss, bg, "登录", msg)
-    elif r["cursor"] == 2:
-      idx = dx_browser(ss, bg)
-      if idx >= 0: ok, msg = do_browser(idx); dx_msg(ss, bg, "登录", msg)
+  def dx_login(screen, draw_background):
+    dialog = Dialog("登录", ["扫码登录", "加载 cookies", "浏览器 cookies"], [{"label": "确定", "action": "ok"}, {"label": "取消", "action": "cancel"}])
+    result = dialog.run(screen, draw_background)
+    if not result or result["action"] != "ok": return
+    if result["cursor"] == 0:
+      ok, message = do_login_qr()
+      dx_msg(screen, draw_background, "登录", message)
+    elif result["cursor"] == 1:
+      ok, message = do_cookies()
+      dx_msg(screen, draw_background, "登录", message)
+    elif result["cursor"] == 2:
+      browser_index = dx_browser(screen, draw_background)
+      if browser_index >= 0:
+        ok, message = do_browser(browser_index)
+        dx_msg(screen, draw_background, "登录", message)
 
-  def dx_download(ss, bg, it):
-    if not it or it.get("type") != "video": return
-    items = ["音频", "视频", "音视频"] + [f"{name}({'VIP' if qn in NEED_VIP_QN else ('登录' if qn in NEED_LOGIN_QN else '免费')})" for name, qn in QUALITY]
-    checks = [False]*len(items)
-    checks[{"audio":0, "video":1, "both":2}.get(DLG_MODE, 0)] = True
-    for i, (_, qn) in enumerate(QUALITY):
-      if qn == DLG_QN: checks[3 + i] = True; break
-    d = Dialog("下载 - 类型/画质", items, [{"label": "下一步", "action": "ok"}, {"label": "取消", "action": "cancel"}], kind="check", checks=checks)
-    r = d.run(ss, bg)
-    if not r or r["action"] != "ok": return
-    mode = "audio" if r["checks"][0] else ("video" if r["checks"][1] else "both")
-    qn = DLG_QN
-    for i in range(3, len(r["checks"])):
-      if r["checks"][i]: qn = QUALITY[i-3][1]; break
-    d2 = Dialog("下载 - 分P", [f"P: {DLG_PAGE}"], [{"label": "下载", "action": "ok"}, {"label": "取消", "action": "cancel"}], kind="form")
-    r2 = d2.run(ss, bg)
-    if not r2 or r2["action"] != "ok": return
+  def require_login(screen, draw_background, action_name="此操作"):
+    if state["login"] == "已登录":
+      return True
+    dialog = Dialog("需要登录", [f"{action_name}需要登录", "是否现在登录？"], [{"label": "去登录", "action": "ok"}, {"label": "取消", "action": "cancel"}], kind="text")
+    result = dialog.run(screen, draw_background)
+    if result and result["action"] == "ok":
+      dx_login(screen, draw_background)
+    return state["login"] == "已登录"
+
+  def dx_comment(screen, draw_background, item):
+    if not item or item.get("type") != "video": return
+    response = client.get_comment(item["id"])
+    replies = (response.get("data") or {}).get("replies") or []
+    lines = [f"{r.get('member',{}).get('uname','')}: {r.get('content',{}).get('message','')[:40]}" for r in replies[:20]]
+    if not lines: lines = ["(没有评论)"]
+    dialog = Dialog(f"评论 {len(replies)} 条", lines, [{"label": "关闭", "action": "ok"}], kind="text")
+    dialog.run(screen, draw_background)
+
+  def do_like(screen, draw_background, item):
+    if not item or item.get("type") != "video": return
+    if not require_login(screen, draw_background, "点赞"): return
+    response = client.like_video(item["id"], like=1)
+    dx_msg(screen, draw_background, "点赞", "成功" if response.get("code") == 0 else f"失败: {response.get('message')}")
+
+  def do_coin(screen, draw_background, item):
+    if not item or item.get("type") != "video": return
+    if not require_login(screen, draw_background, "投币"): return
+    response = client.add_coin(item["id"], multiply=1, select_like=1)
+    dx_msg(screen, draw_background, "投币", "成功" if response.get("code") == 0 else f"失败: {response.get('message')}")
+
+  def do_fav(screen, draw_background, item):
+    if not item or item.get("type") != "video": return
+    if not require_login(screen, draw_background, "收藏"): return
+    folders = client.get_fav_folders(client.cookies.get("DedeUserID", ""))
+    folder_list = (folders.get("data") or {}).get("list") or []
+    if not folder_list:
+      dx_msg(screen, draw_background, "收藏", "没有可用收藏夹"); return
+    items = [f"{f.get('title','')} ({f.get('media_count',0)})" for f in folder_list]
+    dialog = Dialog("选择收藏夹", items, [{"label": "收藏", "action": "ok"}, {"label": "取消", "action": "cancel"}])
+    result = dialog.run(screen, draw_background)
+    if not result or result["action"] != "ok": return
+    folder_id = folder_list[result["cursor"]].get("id")
+    response = client.fav_video(item["id"], add_media_ids=str(folder_id))
+    dx_msg(screen, draw_background, "收藏", "成功" if response.get("code") == 0 else f"失败: {response.get('message')}")
+
+  def do_follow(screen, draw_background, item):
+    if not item or item.get("type") != "video": return
+    if not require_login(screen, draw_background, "关注"): return
+    mid = item.get("mid")
+    if not mid:
+      detail = client.get_view(item["id"])
+      mid = (detail.get("data") or {}).get("owner", {}).get("mid")
+    if not mid:
+      dx_msg(screen, draw_background, "关注", "获取 UP 主 mid 失败"); return
+    response = client.modify_relation(mid, act=1)
+    dx_msg(screen, draw_background, "关注", "成功" if response.get("code") == 0 else f"失败: {response.get('message')}")
+
+  def available_quality():
+    if state["login"] == "已登录":
+      return DLG_QN
+    for name, quality in reversed(QUALITY):
+      if quality not in NEED_LOGIN_QN and quality not in NEED_VIP_QN:
+        return quality
+    return 32
+
+  def dx_download(screen, draw_background, item):
+    if not item or item.get("type") != "video": return
+    quality_items = []
+    for name, quality in QUALITY:
+      if quality in NEED_VIP_QN:
+        quality_items.append(f"{name}(VIP)")
+      elif quality in NEED_LOGIN_QN:
+        quality_items.append(f"{name}(登录)")
+      else:
+        quality_items.append(f"{name}(免费)")
+    items = ["音频", "视频", "音视频"] + quality_items
+    checks = [False] * len(items)
+    checks[{"audio": 0, "video": 1, "both": 2}.get(DLG_MODE, 2)] = True
+    default_quality = available_quality()
+    for index, (_, quality) in enumerate(QUALITY):
+      if quality == default_quality:
+        checks[3 + index] = True
+        break
+    dialog = Dialog(
+      "下载 - 类型/画质", items,
+      [{"label": "下一步", "action": "ok"}, {"label": "取消", "action": "cancel"}],
+      kind="check", checks=checks,
+      exclusive_groups=[{0, 1, 2}, {3, 4, 5, 6, 7, 8, 9}],
+    )
+    result = dialog.run(screen, draw_background)
+    if not result or result["action"] != "ok": return
+    mode = "both"
+    if result["checks"][0]: mode = "audio"
+    elif result["checks"][1]: mode = "video"
+    quality = default_quality
+    for index in range(3, len(result["checks"])):
+      if result["checks"][index]:
+        quality = QUALITY[index - 3][1]
+        break
+    if state["login"] != "已登录" and (quality in NEED_LOGIN_QN or quality in NEED_VIP_QN):
+      quality = available_quality()
+    danmaku_dialog = Dialog("下载弹幕？", ["不下", "下载弹幕 xml"], [{"label": "确定", "action": "ok"}, {"label": "取消", "action": "cancel"}])
+    danmaku_result = danmaku_dialog.run(screen, draw_background)
+    want_danmaku = danmaku_result and danmaku_result["action"] == "ok" and danmaku_result["cursor"] == 1
+    page_dialog = Dialog("下载 - 分P", [f"P: {DLG_PAGE}"], [{"label": "下载", "action": "ok"}, {"label": "取消", "action": "cancel"}], kind="form")
+    page_result = page_dialog.run(screen, draw_background)
+    if not page_result or page_result["action"] != "ok": return
     page = DLG_PAGE
-    try: page = int(d2.items[0].rsplit(":", 1)[1].strip())
+    try: page = int(page_dialog.items[0].rsplit(":", 1)[1].strip())
     except Exception: pass
-    ok, msg = do_download(it, mode, qn, page)
-    dx_msg(ss, bg, "下载结果", msg)
+    ok, message = do_download(item, mode, quality, page)
+    if want_danmaku:
+      detail = client.get_view(item["id"])
+      pages = (detail.get("data") or {}).get("pages") or []
+      if pages:
+        cid = pages[min(page, len(pages)) - 1].get("cid")
+        response = client.get_danmaku_xml(cid)
+        if response is not None:
+          filepath = os.path.join(MUSIC_DIR, f"{client._safe_filename(item['title'])}_{cid}.xml")
+          open(filepath, "wb").write(response.content)
+          message += f"；弹幕已存 {os.path.basename(filepath)}"
+    dx_msg(screen, draw_background, "下载结果", message)
 
-  def dx_settings(ss, bg):
-    nonlocal COOKIE_PATH, CACHE_DIR, HTTP_PROXY, DOWNLOAD_MODE, FETCH_PS, USE_TERM_H, BROWSER_IDX, PLAY_QN, PLAY_PAGE
-    items = [f"COOKIE_PATH: {COOKIE_PATH}", f"CACHE_DIR: {CACHE_DIR}", f"HTTP_PROXY: {HTTP_PROXY or ''}", f"download_mode: {DOWNLOAD_MODE}", f"fetch_ps: {FETCH_PS}", f"use_term_height: {'yes' if USE_TERM_H else 'no'}", f"browser: {BROWSERS[BROWSER_IDX] if BROWSER_IDX >= 0 else '未选'}", f"play_qn: {PLAY_QN}", f"play_page: {PLAY_PAGE}"]
-    d = Dialog("设置", items, [{"label": "保存", "action": "ok"}, {"label": "取消", "action": "cancel"}], kind="form")
-    r = d.run(ss, bg)
-    if not r or r["action"] != "ok": return
-    def gv(i): return d.items[i].rsplit(":", 1)[1].strip()
-    COOKIE_PATH = gv(0) or COOKIE_PATH; CACHE_DIR = gv(1) or CACHE_DIR
-    HTTP_PROXY = gv(2) or None; DOWNLOAD_MODE = gv(3) or DOWNLOAD_MODE
-    try: FETCH_PS = int(gv(4) or FETCH_PS)
+  def dx_settings(screen, draw_background):
+    nonlocal COOKIE_PATH, CACHE_DIR, HTTP_PROXY, DOWNLOAD_MODE, FETCH_PS, USE_TERM_HEIGHT, BROWSER_INDEX, PLAY_QN, PLAY_PAGE
+    items = [f"COOKIE_PATH: {COOKIE_PATH}", f"CACHE_DIR: {CACHE_DIR}", f"HTTP_PROXY: {HTTP_PROXY or ''}", f"download_mode: {DOWNLOAD_MODE}", f"fetch_ps: {FETCH_PS}", f"use_term_height: {'yes' if USE_TERM_HEIGHT else 'no'}", f"browser: {BROWSERS[BROWSER_INDEX] if BROWSER_INDEX >= 0 else '未选'}", f"play_qn: {PLAY_QN}", f"play_page: {PLAY_PAGE}"]
+    dialog = Dialog("设置", items, [{"label": "保存", "action": "ok"}, {"label": "取消", "action": "cancel"}], kind="form")
+    result = dialog.run(screen, draw_background)
+    if not result or result["action"] != "ok": return
+    def get_value(index): return dialog.items[index].rsplit(":", 1)[1].strip()
+    COOKIE_PATH = get_value(0) or COOKIE_PATH
+    CACHE_DIR = get_value(1) or CACHE_DIR
+    HTTP_PROXY = get_value(2) or None
+    DOWNLOAD_MODE = get_value(3) or DOWNLOAD_MODE
+    try: FETCH_PS = int(get_value(4) or FETCH_PS)
     except Exception: pass
-    USE_TERM_H = gv(5).lower() in ("yes", "1", "true")
-    try: PLAY_QN = int(gv(7) or PLAY_QN)
+    USE_TERM_HEIGHT = get_value(5).lower() in ("yes", "1", "true")
+    try: PLAY_QN = int(get_value(7) or PLAY_QN)
     except Exception: pass
-    try: PLAY_PAGE = int(gv(8) or PLAY_PAGE)
+    try: PLAY_PAGE = int(get_value(8) or PLAY_PAGE)
     except Exception: pass
-    save_conf({"COOKIE_PATH": COOKIE_PATH, "CACHE_DIR": CACHE_DIR, "HTTP_PROXY": HTTP_PROXY or "", "download_mode": DOWNLOAD_MODE, "fetch_ps": str(FETCH_PS), "use_term_height": "1" if USE_TERM_H else "0", "browser_idx": str(BROWSER_IDX), "dlg_mode": DLG_MODE, "dlg_qn": str(DLG_QN), "dlg_page": str(DLG_PAGE), "play_qn": str(PLAY_QN), "play_page": str(PLAY_PAGE)})
+    save_conf({"COOKIE_PATH": COOKIE_PATH, "CACHE_DIR": CACHE_DIR, "HTTP_PROXY": HTTP_PROXY or "", "download_mode": DOWNLOAD_MODE, "fetch_ps": str(FETCH_PS), "use_term_height": "1" if USE_TERM_HEIGHT else "0", "browser_idx": str(BROWSER_INDEX), "dlg_mode": DLG_MODE, "dlg_qn": str(DLG_QN), "dlg_page": str(DLG_PAGE), "play_qn": str(PLAY_QN), "play_page": str(PLAY_PAGE)})
 
-  def dx_help(ss, bg):
+  def dx_help(screen, draw_background):
     lines = ["Enter      播放", "i /        搜索", "Tab        切换类型", "↑↓         移动", "←→         进度/切类型", "+ -        音量", "[ ]        翻页", "L          登录", "P          热门", "R          推荐", "H          历史", "W          稍后", ",          设置", "?          帮助", "Q          退出"]
-    d = Dialog("帮助", lines, [{"label": "关闭", "action": "ok"}], kind="text")
-    d.run(ss, bg)
+    dialog = Dialog("帮助", lines, [{"label": "关闭", "action": "ok"}], kind="text")
+    dialog.run(screen, draw_background)
 
-  def draw_detail(ss, top, left, h, w, it):
-    iw = w - 4; y = top + 2; my = top + h - 3
-    def put(l, v, c=8):
+  def enrich_item(item):
+    if not item or item.get("type") != "video": return item
+    if item.get("enriched"): return item
+    try:
+      detail = client.get_view(item["id"])
+      data = detail.get("data") or {}
+      stat = data.get("stat") or {}
+      item["like"] = stat.get("like", item.get("like", 0))
+      item["coin"] = stat.get("coin", 0)
+      item["favorite"] = stat.get("favorite", item.get("favorite", 0))
+      item["comment"] = stat.get("reply", 0)
+      item["danmaku"] = stat.get("danmaku", item.get("danmaku", 0))
+      item["enriched"] = True
+    except Exception: pass
+    return item
+
+  def draw_detail(screen, top, left, height, width, item):
+    inner_width = width - 4
+    y = top + 2
+    max_y = top + height - 3
+    actions = {}
+    def put(label, value, color=8):
       nonlocal y
-      if y >= my: return
-      sa(ss, y, left + 2, tr(f" {l}: {v}", iw), curses.color_pair(c)); y += 1
-    if not it:
-      sa(ss, y, left + 2, "  (无选中项)", curses.color_pair(8)); return
-    t = it.get("type","")
-    if t == "video":
-      put("标题", it.get("title",""), 9); put("BV号", it.get("id","")); put("UP主", it.get("author","")); put("分区", it.get("typename","")); put("播放", it.get("play",0)); put("点赞", it.get("like",0)); put("弹幕", it.get("danmaku",0)); put("收藏", it.get("favorite",0)); put("时长", it.get("duration",""))
-    elif t == "user":
-      put("用户名", it.get("title",""), 9); put("UID", str(it.get("id",""))); put("粉丝", it.get("fans",0)); put("视频", it.get("videos",0)); put("等级", f"Lv{it.get('level',0)}"); put("签名", it.get("usign",""))
+      if y >= max_y: return
+      safe_addstr(screen, y, left + 2, truncate(f" {label}: {value}", inner_width), curses.color_pair(color))
+      y += 1
+    def put_clickable(label, value, action, color=9):
+      nonlocal y
+      if y >= max_y: return
+      text = f" {label}: {value}"
+      safe_addstr(screen, y, left + 2, truncate(text, inner_width), curses.color_pair(color) | curses.A_BOLD)
+      prefix = f" {label}: "
+      value_x = left + 2 + display_width(prefix)
+      value_end = value_x + display_width(str(value))
+      actions[action] = (y, value_x, value_end)
+      y += 1
+    if not item:
+      safe_addstr(screen, y, left + 2, "  (无选中项)", curses.color_pair(8))
+      return actions
+    content_type = item.get("type","")
+    if content_type == "video":
+      put("标题", item.get("title",""), 9)
+      put("BV号", item.get("id",""))
+      put("UP主", item.get("author",""))
+      put("分区", item.get("typename",""))
+      put("播放", item.get("play",0))
+      put_clickable("点赞", item.get("like",0), "like")
+      put_clickable("投币", item.get("coin",0), "coin")
+      put_clickable("收藏", item.get("favorite",0), "fav")
+      put_clickable("评论", item.get("comment",0), "comment")
+      put("弹幕", item.get("danmaku",0))
+      put("时长", item.get("duration",""))
+    elif content_type == "user":
+      put("用户名", item.get("title",""), 9)
+      put("UID", str(item.get("id","")))
+      put("粉丝", item.get("fans",0))
+      put("视频", item.get("videos",0))
+      put("等级", f"Lv{item.get('level',0)}")
+      put("签名", item.get("usign",""))
     else:
-      put("标题", it.get("title",""), 9); put("ID", str(it.get("id",""))); put("作者", it.get("author","")); put("播放", it.get("play",0))
-
-  def draw(ss):
-    ss.erase()
-    h, w = ss.getmaxyx()
-    if h < 12 or w < 50:
-      sa(ss, 0, 0, "终端太小", curses.color_pair(10)); ss.refresh(); return
-    now = datetime.now().strftime("%H:%M:%S"); cm = " 💾" if S["hit"] else ""
-    left_t = f" ✦ BiliTui ✦ {S['mode']} P{S['pg']}/{S['tp']}{cm} "
-    right_t = f" {S['login']} ✦ {now} "
-    sa(ss, 0, 0, " "*(w-1), curses.color_pair(1))
-    sa(ss, 0, 0, tr(left_t, w-1), curses.color_pair(1) | curses.A_BOLD)
-    sa(ss, 0, max(0, w - dw(right_t) - 1), tr(right_t, w-1), curses.color_pair(1) | curses.A_BOLD)
-    if S["edit"]: a = curses.color_pair(4) | curses.A_BOLD; hint = " (Enter提交 Esc取消)"
-    else: a = curses.color_pair(3); hint = ""
-    sa(ss, 2, 0, f"  搜索: {S['q']}_{hint}".ljust(w-1), a)
-    login_btn = " [ 登录 ] "; lx = w - dw(login_btn) - 2; S["lpos"] = (lx, lx + dw(login_btn))
-    la = curses.color_pair(1) | curses.A_BOLD if S["login"] != "已登录" else curses.color_pair(8) | curses.A_DIM
-    sa(ss, 2, lx, login_btn, la)
-    if S["mode"] == "search":
-      tl = "  ".join((f"◆{t}◆" if i == S["ti"] else f" {t} ") for i, t in enumerate(TYPES))
-      st = cx(tl, w); pos = []; p = st
-      for i, t in enumerate(TYPES):
-        seg = f"◆{t}◆" if i == S["ti"] else f" {t} "
-        pos.append((p, p + dw(seg), i)); p += dw(seg) + 2
-      S["tpos"] = pos
-      if S["ft"]: sa(ss, 4, 0, " "*(w-1), curses.color_pair(5))
-      sa(ss, 4, st, tl, curses.color_pair(5 if S["ft"] else 6))
-    else: S["tpos"] = []
+      put("标题", item.get("title",""), 9)
+      put("ID", str(item.get("id","")))
+      put("作者", item.get("author",""))
+      put("播放", item.get("play",0))
+    return actions
+  def display_width(s):
+    width = 0
+    for ch in s:
+     code = ord(ch)
+     if (0x1100 <= code <= 0x115F or 0x2E80 <= code <= 0xA4CF or 0xAC00 <= code <= 0xD7A3 or 0xF900 <= code <= 0xFAFF or 0xFE30 <= code <= 0xFE4F or
+     0xFF00 <= code <= 0xFF60 or 0xFFE0 <= code <= 0xFFE6 or 0x1F000 <= code <= 0x1FAFF or 0x20000 <= code <= 0x2FFFD or 0x30000 <= code <= 0x3FFFD): width += 2
+     elif code < 32 or 0x7F <= code < 0xA0: width += 0
+     else: width += 1
+    return width
+  def bili_draw(screen):
+    screen.erase()
+    screen_height, screen_width = screen.getmaxyx()
+    if screen_height < 12 or screen_width < 50:
+      safe_addstr(screen, 0, 0, "终端太小", curses.color_pair(10))
+      screen.refresh()
+      return
+    now = datetime.now().strftime("%H:%M:%S")
+    cache_mark = " 💾" if state["from_cache"] else ""
+    left_title = f" ✦ BiliTui ✦ {state['mode']} P{state['page']}/{state['total_pages']}{cache_mark} "
+    right_title = f" {state['login']} ✦ {now} "
+    safe_addstr(screen, 0, 0, " " * (screen_width - 1), curses.color_pair(1))
+    safe_addstr(screen, 0, 0, truncate(left_title, screen_width - 1), curses.color_pair(1) | curses.A_BOLD)
+    safe_addstr(screen, 0, max(0, screen_width - display_width(right_title) - 1), truncate(right_title, screen_width - 1), curses.color_pair(1) | curses.A_BOLD)
+    if state["editing"]:
+      attr = curses.color_pair(4) | curses.A_BOLD
+      hint = " (Enter提交 Esc取消)"
+    else:
+      attr = curses.color_pair(3)
+      hint = ""
+    pos = state.get("cursor_pos", len(state["query"]))
+    if pos < 0: pos = 0
+    if pos > len(state["query"]): pos = len(state["query"])
+    safe_addstr(screen, 2, 0, " " * (screen_width - 1), attr)
+    safe_addstr(screen, 2, 0, " 搜索: " + state["query"][:pos], attr)
+    safe_addstr(screen, 2, display_width(" 搜索: ") + display_width(state["query"][:pos]), "_", attr)
+    safe_addstr(screen, 2, display_width(" 搜索: ") + display_width(state["query"][:pos]) + 1, state["query"][pos:] + hint, attr)
+    login_button = " [ 登录 ] "
+    login_x = screen_width - display_width(login_button) - 2
+    state["login_button"] = (login_x, login_x + display_width(login_button))
+    login_attr = curses.color_pair(1) | curses.A_BOLD if state["login"] != "已登录" else curses.color_pair(8) | curses.A_DIM
+    safe_addstr(screen, 2, login_x, login_button, login_attr)
+    if state["mode"] == "search":
+      left_marker = "◀ " if state["type_index"] > 0 else "  "
+      right_marker = " ▶" if state["type_index"] < len(TYPES) - 1 else "  "
+      available_width = screen_width - 8 - display_width(left_marker) - display_width(right_marker)
+      start_index = state["type_index"]
+      end_index = state["type_index"]
+      used_width = display_width(f"◆{TYPES[state['type_index']]}◆") + 2
+      while True:
+        moved = False
+        if end_index + 1 < len(TYPES):
+          next_width = display_width(f" {TYPES[end_index + 1]} ") + 2
+          if used_width + next_width <= available_width:
+            end_index += 1
+            used_width += next_width
+            moved = True
+        if start_index - 1 >= 0:
+          prev_width = display_width(f" {TYPES[start_index - 1]} ") + 2
+          if used_width + prev_width <= available_width:
+            start_index -= 1
+            used_width += prev_width
+            moved = True
+        if not moved: break
+      segments = []
+      for index in range(start_index, end_index + 1):
+        segment = f"◆{TYPES[index]}◆" if index == state["type_index"] else f" {TYPES[index]} "
+        segments.append(segment)
+      line_text = "  ".join(segments)
+      start_x = center_x(line_text, screen_width)
+      positions = []
+      current_x = start_x
+      for index in range(start_index, end_index + 1):
+        segment = f"◆{TYPES[index]}◆" if index == state["type_index"] else f" {TYPES[index]} "
+        positions.append((current_x, current_x + display_width(segment), index))
+        current_x += display_width(segment) + 2
+      state["type_positions"] = positions
+      if state["type_focused"]: safe_addstr(screen, 4, 0, " " * (screen_width - 1), curses.color_pair(5))
+      if state["type_index"] > 0: safe_addstr(screen, 4, 1, "◀ ", curses.color_pair(4) | curses.A_BOLD)
+      safe_addstr(screen, 4, start_x, line_text, curses.color_pair(5 if state["type_focused"] else 6))
+      if state["type_index"] < len(TYPES) - 1: safe_addstr(screen, 4, screen_width - 3, " ▶", curses.color_pair(4) | curses.A_BOLD)
+    else: state["type_positions"] = []
     has_player = player is not None
-    pt = 6
-    pb = h - (5 if has_player else 2)
-    ph = pb - pt + 1
-    wl = int(w * 0.55); wr = w - wl
-    box(ss, pt, 0, ph, wl, 2, f"列表 [{len(S['items'])}] P{S['pg']}/{S['tp']}")
-    box(ss, pt, wl, ph, wr, 2, "详情")
-    lh = ph - 3
-    if S["cur"] < S["off"]: S["off"] = S["cur"]
-    if S["cur"] >= S["off"] + lh: S["off"] = S["cur"] - lh + 1
-    for i in range(lh):
-      idx = S["off"] + i
-      if idx >= len(S["items"]): break
-      it = S["items"][idx]; tx = tr(f" {idx+1:>3}. {it['title']} ", wl-4); tx += " " * max(0, (wl-4) - dw(tx))
-      sa(ss, pt+1+i, 1, tx, curses.color_pair(7) | curses.A_BOLD if idx == S["cur"] else curses.color_pair(8))
-    by = pt + ph - 2
-    S["bprev"] = (0,0); S["bnext"] = (0,0); S["mpos"] = (0,0)
-    if S["mode"] == "search":
-      cp_ok = S["pg"] > 1; cn_ok = S["pg"] < S["tp"]
-      bp, bn, gap = " ◀ 上一页 ", " 下一页 ▶ ", "   "
-      tw = dw(bp) + dw(gap) + dw(bn); bx = max(1, (wl - tw) // 2)
-      S["bprev"] = (bx, bx+dw(bp)); S["bnext"] = (bx+dw(bp)+dw(gap), bx+tw)
-      sa(ss, by, bx, bp, curses.color_pair(4) | curses.A_BOLD if cp_ok else curses.color_pair(8) | curses.A_DIM)
-      sa(ss, by, bx+dw(bp), gap, curses.color_pair(8))
-      sa(ss, by, bx+dw(bp)+dw(gap), bn, curses.color_pair(4) | curses.A_BOLD if cn_ok else curses.color_pair(8) | curses.A_DIM)
-    elif S["items"]:
-      more = " [ 加载中... ] " if S["loading_more"] else " [ 加载更多 ] "
-      mx_ = (wl - dw(more)) // 2
-      S["mpos"] = (mx_, mx_ + dw(more))
-      sa(ss, by, mx_, more, curses.color_pair(4) | curses.A_BOLD)
-    ci = S["items"][S["cur"]] if 0 <= S["cur"] < len(S["items"]) else None
-    draw_detail(ss, pt, wl, ph, wr, ci)
-    dby = pt + ph - 2
-    btns = [("下载", "download"), ("封面", "cover"), ("设置", "settings")]
-    bw = max(6, (wr - 4) // 3 - 2)
-    dbx = wl + max(1, (wr - (bw * 3 + 4)) // 2)
-    S["dbtn"] = {}
-    for label, act in btns:
+    panel_top = 6
+    panel_bottom = screen_height - (5 if has_player else 2)
+    panel_height = panel_bottom - panel_top + 1
+    list_width = int(screen_width * 0.55)
+    detail_width = screen_width - list_width
+    draw_box(screen, panel_top, 0, panel_height, list_width, 2, f"列表 [{len(state['items'])}] P{state['page']}/{state['total_pages']}")
+    draw_box(screen, panel_top, list_width, panel_height, detail_width, 2, "详情")
+    visible_lines = panel_height - 3 ; total = len(state["items"])
+    if state["cursor"] > state["tmp_cursor"] and state["down"] == (visible_lines - 1): state["tmp_list_cursor"] += 1
+    elif state["cursor"] < state["tmp_cursor"] and state["down"] == 0: state["tmp_list_cursor"] -= 1
+    if state["tmp_list_cursor"] + visible_lines > total: state["tmp_list_cursor"] = max(0, total - visible_lines)
+    if state["tmp_list_cursor"] < 0: state["tmp_list_cursor"] = 0
+    for line_index in range(visible_lines):
+      index = line_index + state["tmp_list_cursor"]
+      if index >= total: break
+      if index == state["cursor"]:
+        prefix = "➜"
+        attr = curses.color_pair(7) | curses.A_BOLD
+        state["down"] = line_index
+      else:
+        prefix = " "
+        attr = curses.color_pair(8)
+      item = state["items"][index]
+      text = truncate(f"{prefix}{index+1:>3}. {item['title']}", list_width - 4)
+      text += " " * max(0, (list_width - 4) - display_width(text))
+      safe_addstr(screen, panel_top + 1 + line_index, 1, text, attr)
+    state["tmp_cursor"] = state["cursor"]
+    button_row = panel_top + panel_height - 2
+    state["prev_button"] = (0, 0)
+    state["next_button"] = (0, 0)
+    state["more_button"] = (0, 0)
+    if state["mode"] == "search":
+      can_prev = state["page"] > 1
+      can_next = state["page"] < state["total_pages"]
+      prev_label, next_label, gap_text = " ◀ 上一页 ", " 下一页 ▶ ", "   "
+      total_width = display_width(prev_label) + display_width(gap_text) + display_width(next_label)
+      start_x = max(1, (list_width - total_width) // 2)
+      state["prev_button"] = (start_x, start_x + display_width(prev_label))
+      state["next_button"] = (start_x + display_width(prev_label) + display_width(gap_text), start_x + total_width)
+      safe_addstr(screen, button_row, start_x, prev_label, curses.color_pair(4) | curses.A_BOLD if can_prev else curses.color_pair(8) | curses.A_DIM)
+      safe_addstr(screen, button_row, start_x + display_width(prev_label), gap_text, curses.color_pair(8))
+      safe_addstr(screen, button_row, start_x + display_width(prev_label) + display_width(gap_text), next_label, curses.color_pair(4) | curses.A_BOLD if can_next else curses.color_pair(8) | curses.A_DIM)
+    elif state["items"]:
+      more_label = " [ 加载中... ] " if state["loading_more"] else " [ 加载更多 ] "
+      more_x = (list_width - display_width(more_label)) // 2
+      state["more_button"] = (more_x, more_x + display_width(more_label))
+      safe_addstr(screen, button_row, more_x, more_label, curses.color_pair(4) | curses.A_BOLD)
+    current_item = state["items"][state["cursor"]] if 0 <= state["cursor"] < len(state["items"]) else None
+    if current_item: enrich_item(current_item)
+    state["detail_item"] = current_item
+    state["detail_actions"] = draw_detail(screen, panel_top, list_width, panel_height, detail_width, current_item)
+    detail_button_row = panel_top + panel_height - 2
+    detail_buttons = [("下载", "download"), ("封面", "cover"), ("设置", "settings")]
+    button_width = max(6, (detail_width - 4) // 3 - 2)
+    button_x = list_width + max(1, (detail_width - (button_width * 3 + 4)) // 2)
+    state["detail_buttons"] = {}
+    for index, (label, action) in enumerate(detail_buttons):
+      col = button_x + index * (button_width + 2)
       label = f" {label} "
-      sa(ss, dby, dbx, label.ljust(bw), curses.color_pair(4) | curses.A_BOLD)
-      S["dbtn"][act] = (dbx, dbx + bw)
-      dbx += bw + 2
+      safe_addstr(screen, detail_button_row, col, label.ljust(button_width), curses.color_pair(4) | curses.A_BOLD)
+      state["detail_buttons"][action] = (detail_button_row, col, col + button_width)
     if has_player:
-      py = h - 4
-      try: now_p, dur = player.get_play_progress() if player.is_busy() else ("00:00", "00:00")
-      except Exception: now_p, dur = "00:00", "00:00"
-      pct = 0
-      try: pct = int(player.progress() or 0)
+      player_row = screen_height - 4
+      try: now_playing, duration = player.get_play_progress() if player.is_busy() else ("00:00", "00:00")
+      except Exception: now_playing, duration = "00:00", "00:00"
+      percent = 0
+      try: percent = int(player.progress() or 0)
       except Exception: pass
-      volw = max(5, int(w * 0.15)); vf = int(volw * S["vol"])
-      vbar = "█" * vf + "░" * (volw - vf)
-      line1 = f" 音量: [{vbar}] {int(S['vol']*100):>3}%   共 {len(S['items'])} 首   {'播放中' if S['playing'] else '已暂停'}"
-      sa(ss, py, 0, tr(line1, w-1).ljust(w-1), curses.color_pair(9))
-      S["vbar"] = (7, 7 + volw); S["vbar_row"] = py
-      time_str = f"{now_p}/{dur}"; pct_str = f"{pct:>3}%"
-      inner = max(5, w - dw(time_str) - dw(pct_str) - 5)
-      filled = int(inner * pct / 100)
-      bar = "=" * filled + (">" if filled < inner else "") + " " * max(0, inner - filled - (1 if filled < inner else 0))
-      line2 = f"{time_str} [{bar}] {pct_str}"
-      sa(ss, py+1, 0, tr(line2, w-1), curses.color_pair(8) | curses.A_BOLD)
-      S["pbar"] = (dw(time_str) + 1, min(w - 1, dw(time_str) + 1 + inner)); S["pbar_row"] = py + 1
-    if S["msg"]:
-      sa(ss, h-2, 0, tr(f" {S['msg']}", w-1).ljust(w-1), curses.color_pair(10))
+      volume_width = max(5, int(screen_width * 0.15))
+      filled_width = int(volume_width * state["volume"])
+      volume_bar = "█" * filled_width + "░" * (volume_width - filled_width)
+      line1 = f" 音量: [{volume_bar}] {int(state['volume']*100):>3}%   共 {len(state['items'])} 首   {'播放中' if state['playing'] else '已暂停'}"
+      safe_addstr(screen, player_row, 0, truncate(line1, screen_width - 1).ljust(screen_width - 1), curses.color_pair(9))
+      state["volume_bar"] = (7, 7 + volume_width)
+      state["volume_bar_row"] = player_row
+      time_str = f"{now_playing}/{duration}"
+      percent_str = f"{percent:>3}%"
+      bar_inner = max(5, screen_width - display_width(time_str) - display_width(percent_str) - 5)
+      bar_filled = int(bar_inner * percent / 100)
+      bar_text = "=" * bar_filled + (">" if bar_filled < bar_inner else "") + " " * max(0, bar_inner - bar_filled - (1 if bar_filled < bar_inner else 0))
+      line2 = f"{time_str} [{bar_text}] {percent_str}"
+      safe_addstr(screen, player_row + 1, 0, truncate(line2, screen_width - 1), curses.color_pair(8) | curses.A_BOLD)
+      state["progress_bar"] = (display_width(time_str) + 1, min(screen_width - 1, display_width(time_str) + 1 + bar_inner))
+      state["progress_bar_row"] = player_row + 1
+    if state["message"]:
+      safe_addstr(screen, screen_height - 2, 0, truncate(f" {state['message']}", screen_width - 1).ljust(screen_width - 1), curses.color_pair(10))
     help_line = " Enter:播放  i:搜索  Tab:类型  ↑↓:移动  ←→:进度  +-:音量  ?:帮助  Q:退出 "
-    sa(ss, h-1, 0, help_line.ljust(w-1), curses.color_pair(11))
-    ss.refresh()
-
-  def bg(ss): draw(ss)
-
-  def _do_volume_at(mx):
-    v1, v2 = S.get("vbar", (0,0))
-    if v1 <= mx <= v2:
-      vol = max(0.0, min(1.0, (mx - v1) / max(1, v2 - v1)))
-      S["vol"] = vol
+    safe_addstr(screen, screen_height - 1, 0, help_line.ljust(screen_width - 1), curses.color_pair(11))
+    screen.refresh()
+  def draw_background(screen): bili_draw(screen)
+  def handle_volume_click(mouse_x):
+    volume_start, volume_end = state.get("volume_bar", (0, 0))
+    if volume_start <= mouse_x <= volume_end:
+      volume = max(0.0, min(1.0, (mouse_x - volume_start) / max(1, volume_end - volume_start)))
+      state["volume"] = volume
       try:
         import pygame
-        pygame.mixer.music.set_volume(vol)
-      except Exception: pass
+        pygame.mixer.music.set_volume(volume)
+      except Exception:
+        pass
 
-  def _do_seek_at(mx):
-    p1, p2 = S.get("pbar", (0,0))
-    if p1 <= mx <= p2 and player:
+  def handle_seek_click(mouse_x):
+    progress_start, progress_end = state.get("progress_bar", (0, 0))
+    if progress_start <= mouse_x <= progress_end and player:
       try:
         import pygame
         if pygame.mixer.music.get_busy():
-          dur = float(player.get_duration() or 0)
-          if dur > 0:
-            target = (mx - p1) / max(1, p2 - p1) * dur
+          duration = float(player.get_duration() or 0)
+          if duration > 0:
+            target = (mouse_x - progress_start) / max(1, progress_end - progress_start) * duration
             if hasattr(player, "seek_to"): player.seek_to(target)
-      except Exception: pass
+      except Exception:
+        pass
 
-  def handle_key(ss, key):
+  def handle_key(screen, key):
+    screen_height, screen_width = screen.getmaxyx()
+    panel_top = 6
+    panel_bottom = screen_height - (5 if player else 2)
+    panel_height = panel_bottom - panel_top + 1
+    visible_lines = panel_height - 3
+    list_width = int(screen_width * 0.55)
+    button_row = panel_top + panel_height - 2
     if key == curses.KEY_MOUSE:
-      try: _, mx, my, _, bs = curses.getmouse()
+      try:
+        _, mouse_x, mouse_y, _, button_state = curses.getmouse()
       except Exception: return
-      h, w = ss.getmaxyx()
-      pt = 6; pb = h - (5 if player else 2); ph = pb - pt + 1; wl = int(w * 0.55); by = pt + ph - 2
-      # 拖动超时清
-      if S.get("dragging") and time.time() - S.get("drag_time", 0) > 0.5:
-        S["dragging"] = None
-      # 拖动中，只在对应行才继续
-      if S.get("dragging") == "progress":
-        if my == S.get("pbar_row", -1):
-          _do_seek_at(mx); S["drag_time"] = time.time()
+      if state.get("dragging") and time.time() - state.get("drag_time", 0) > 0.5:
+        state["dragging"] = None
+      if state.get("dragging") == "progress":
+        if mouse_y == state.get("progress_bar_row", -1):
+          handle_seek_click(mouse_x)
+          state["drag_time"] = time.time()
         return
-      if S.get("dragging") == "volume":
-        if my == S.get("vbar_row", -1):
-          _do_volume_at(mx); S["drag_time"] = time.time()
+      if state.get("dragging") == "volume":
+        if mouse_y == state.get("volume_bar_row", -1):
+          handle_volume_click(mouse_x)
+          state["drag_time"] = time.time()
         return
-      # 按下：进度条 / 音量条
-      if bs & curses.BUTTON1_PRESSED:
-        if my == S.get("pbar_row", -1):
-          p1, p2 = S.get("pbar", (0,0))
-          if p1 <= mx <= p2:
-            S["dragging"] = "progress"; S["drag_time"] = time.time()
-            _do_seek_at(mx); return
-        if my == S.get("vbar_row", -1):
-          v1, v2 = S.get("vbar", (0,0))
-          if v1 <= mx <= v2:
-            S["dragging"] = "volume"; S["drag_time"] = time.time()
-            _do_volume_at(mx); return
-        # 按在别处，清拖动
-        S["dragging"] = None
-      if bs & (curses.BUTTON1_RELEASED | curses.BUTTON1_CLICKED):
-        S["dragging"] = None
-      # 滚轮
-      if bs & curses.BUTTON4_PRESSED:
-        if S["cur"] > 0: S["cur"] -= 1
+      if button_state & curses.BUTTON1_PRESSED:
+        if mouse_y == state.get("progress_bar_row", -1):
+          progress_start, progress_end = state.get("progress_bar", (0, 0))
+          if progress_start <= mouse_x <= progress_end:
+            state["dragging"] = "progress"
+            state["drag_time"] = time.time()
+            handle_seek_click(mouse_x)
+            return
+        if mouse_y == state.get("volume_bar_row", -1):
+          volume_start, volume_end = state.get("volume_bar", (0, 0))
+          if volume_start <= mouse_x <= volume_end:
+            state["dragging"] = "volume"
+            state["drag_time"] = time.time()
+            handle_volume_click(mouse_x)
+            return
+        state["dragging"] = None
+      if button_state & (curses.BUTTON1_RELEASED | curses.BUTTON1_CLICKED):
+        state["dragging"] = None
+      if button_state & curses.BUTTON4_PRESSED and visible_lines < len(state["items"]) and state["tmp_list_cursor"] > 0:
+        state["tmp_list_cursor"] -= 1
         return
-      if bs & curses.BUTTON5_PRESSED:
-        if S["cur"] < len(S["items"]) - 1: S["cur"] += 1
+      if button_state & curses.BUTTON5_PRESSED and visible_lines < len(state["items"]) and state["tmp_list_cursor"] + visible_lines < len(state["items"]):
+        state["tmp_list_cursor"] += 1
         return
-      # 普通点击
-      if my == 2:
-        lx, lx2 = S.get("lpos", (0,0))
-        if lx <= mx < lx2: dx_login(ss, bg); return
-        S["edit"] = True; return
-      if my == 4 and S["mode"] == "search":
-        S["ft"] = True
-        for s, e, i in S.get("tpos", []):
-          if s <= mx < e:
-            if S["ti"] != i: S["ti"] = i; do_search(1) if S["q"] else None
+      if mouse_y == 2:
+        login_start, login_end = state.get("login_button", (0, 0))
+        if login_start <= mouse_x < login_end:
+          dx_login(screen, draw_background)
+          return
+        state["cursor_pos"] = len(state["query"])
+        state["editing"] = True
+        return
+      else: state["editing"] = False
+      if mouse_y == 4 and state["mode"] == "search":
+        state["type_focused"] = True
+        if mouse_x <= 3 and state["type_index"] > 0:
+          state["type_index"] -= 1
+          if state["query"]: do_search(1)
+          return
+        if mouse_x >= screen_width - 3 and state["type_index"] < len(TYPES) - 1:
+          state["type_index"] += 1
+          if state["query"]: do_search(1)
+          return
+        for start, end, index in state.get("type_positions", []):
+          if start <= mouse_x < end:
+            if state["type_index"] != index:
+              state["type_index"] = index
+              do_search(1) if state["query"] else None
             break
         return
-      for act, (b1, b2) in S.get("dbtn", {}).items():
-        if my == by and b1 <= mx < b2:
-          ci = S["items"][S["cur"]] if 0 <= S["cur"] < len(S["items"]) else None
-          if act == "download": dx_download(ss, bg, ci)
-          elif act == "cover":
-            ok, msg = do_view_cover(ci); dx_msg(ss, bg, "查看封面", msg)
-          elif act == "settings": dx_settings(ss, bg)
+      for action, (row, value_start, value_end) in state.get("detail_actions", {}).items():
+        if mouse_y == row and value_start <= mouse_x < value_end:
+          current_item = state.get("detail_item")
+          if action == "like": do_like(screen, draw_background, current_item)
+          elif action == "coin": do_coin(screen, draw_background, current_item)
+          elif action == "fav": do_fav(screen, draw_background, current_item)
+          elif action == "comment": dx_comment(screen, draw_background, current_item)
           return
-      if my == by:
-        p1, p2 = S.get("bprev", (0,0)); n1, n2 = S.get("bnext", (0,0))
-        if p1 <= mx < p2: pp(); return
-        if n1 <= mx < n2: np(); return
-        m1, m2 = S.get("mpos", (0,0))
-        if m1 <= mx < m2:
-          S["loading_more"] = True
-          S["temp_ps"] = (S["temp_ps"] or cur_ps()) + 5
-          {"popular": load_pop, "recommend": load_rec, "history": load_his, "toview": load_tov}.get(S["mode"], load_pop)(1, False, True)
-          S["loading_more"] = False
+      for action, (row, button_start, button_end) in state.get("detail_buttons", {}).items():
+        if mouse_y == row and button_start <= mouse_x < button_end:
+          current_item = state.get("detail_item")
+          if action == "download": dx_download(screen, draw_background, current_item)
+          elif action == "cover":
+            ok, message = do_view_cover(current_item); dx_msg(screen, draw_background, "查看封面", message)
+          elif action == "settings": dx_settings(screen, draw_background)
           return
-      if pt+1 <= my < by and 1 <= mx < wl-1:
-        idx = S["off"] + (my - pt - 1)
-        if 0 <= idx < len(S["items"]):
+      if mouse_y == button_row:
+        prev_start, prev_end = state.get("prev_button", (0, 0))
+        next_start, next_end = state.get("next_button", (0, 0))
+        if prev_start <= mouse_x < prev_end:
+          prev_page()
+          return
+        if next_start <= mouse_x < next_end:
+          next_page()
+          return
+        more_start, more_end = state.get("more_button", (0, 0))
+        if more_start <= mouse_x < more_end:
+          state["loading_more"] = True
+          state["temp_page_size"] = (state["temp_page_size"] or current_page_size()) + 5
+          {"popular": load_pop, "recommend": load_rec, "history": load_his, "toview": load_tov}.get(state["mode"], load_pop)(1, False, True)
+          state["loading_more"] = False
+          return
+      if panel_top + 1 <= mouse_y < button_row and 1 <= mouse_x < list_width - 1:
+        if button_state & (curses.BUTTON1_CLICKED | curses.BUTTON1_RELEASED):
           now = time.time()
-          if now - S["last_click"] < 0.1: return
-          if S["last_idx"] == idx and now - S["last_click"] < 0.8:
-            ok, msg = do_play(S["items"][idx], ss); S["last_idx"] = -1
-            if not ok: dx_msg(ss, bg, "播放", msg)
-          else:
-            S["last_click"] = now; S["last_idx"] = idx
-          S["cur"] = idx; S["ft"] = False
+          if now - state["last_click_time"] < 0.15:
+            return
+          index = state["tmp_list_cursor"] + (mouse_y - panel_top - 1)
+          if 0 <= index < len(state["items"]):
+            if state["last_click_index"] == index and now - state["last_click_time"] < 0.8:
+              ok, message = do_play(state["items"][index], screen)
+              state["last_click_index"] = -1
+              state["last_click_time"] = 0
+              if not ok: dx_msg(screen, draw_background, "播放", message)
+            else:
+              state["last_click_time"] = now
+              state["last_click_index"] = index
+            state["cursor"] = index
+            state["tmp_cursor"] = index
+            state["down"] = mouse_y - panel_top - 1
+            state["type_focused"] = False
         return
       return
-    if S["edit"]:
-      if isinstance(key, str):
-        if key in ("\n", "\r"): S["edit"] = False; ok, msg = do_search(1); (None if ok else dx_msg(ss, bg, "搜索", msg))
-        elif key == "\x1b": S["edit"] = False
-        elif key in ("\x7f", "\b"): S["q"] = S["q"][:-1]
-        elif key == "\t": S["edit"] = False
-        elif ord(key) >= 32: S["q"] += key
-      elif key == curses.KEY_BACKSPACE: S["q"] = S["q"][:-1]
+    if state["editing"]:
+        pos = state.get("cursor_pos", len(state["query"]))
+        query = state["query"]
+        if isinstance(key, str):
+            if key in ("\n", "\r"):
+                state["editing"] = False
+                ok, message = do_search(1)
+                if not ok: dx_msg(screen, draw_background, "搜索", message)
+            elif key == "\x1b": state["editing"] = False
+            elif key in ("\x7f", "\b"):
+                if pos > 0:
+                    state["query"] = query[:pos-1] + query[pos:]
+                    state["cursor_pos"] = pos - 1
+            elif key == "\t": state["editing"] = False
+            elif len(key) == 1 and ord(key) >= 32:
+                state["query"] = query[:pos] + key + query[pos:]
+                state["cursor_pos"] = pos + 1
+        elif key == curses.KEY_BACKSPACE:
+            if pos > 0:
+                state["query"] = query[:pos-1] + query[pos:]
+                state["cursor_pos"] = pos - 1
+        elif key == curses.KEY_LEFT:
+            if pos > 0: state["cursor_pos"] = pos - 1
+        elif key == curses.KEY_RIGHT:
+            if pos < len(query): state["cursor_pos"] = pos + 1
+        elif key == curses.KEY_HOME: state["cursor_pos"] = 0
+        elif key == curses.KEY_END: state["cursor_pos"] = len(query)
+        elif key == curses.KEY_DC:
+            if pos < len(query): state["query"] = query[:pos] + query[pos+1:]
+        return
+    if key == "\t":
+      state["type_focused"] = not state["type_focused"]
       return
-    if key == "\t": S["ft"] = not S["ft"]; return
     if key == curses.KEY_UP:
-      if S["cur"] > 0: S["cur"] -= 1
+      if state["cursor"] > 0:
+        state["cursor"] -= 1
+        if state["cursor"] < state["tmp_list_cursor"]:
+          state["tmp_list_cursor"] = state["cursor"] + 1
+        if state["cursor"] >= state["tmp_list_cursor"] + visible_lines:
+          state["tmp_list_cursor"] = state["cursor"] - visible_lines + 1
     elif key == curses.KEY_DOWN:
-      if S["cur"] < len(S["items"]) - 1: S["cur"] += 1
+      if state["cursor"] < len(state["items"]) - 1:
+        state["cursor"] += 1
+        if state["cursor"] >= state["tmp_list_cursor"] + visible_lines:
+          state["tmp_list_cursor"] = state["cursor"] - visible_lines 
+        if state["cursor"] < state["tmp_list_cursor"]:
+          state["tmp_list_cursor"] = state["cursor"]
     elif key == curses.KEY_LEFT:
-      if S["ft"]: S["ti"] = (S["ti"]-1) % len(TYPES)
+      if state["type_focused"]:
+        state["type_index"] = (state["type_index"] - 1) % len(TYPES)
       elif player:
         try: player.Jump("-10")
         except Exception: pass
     elif key == curses.KEY_RIGHT:
-      if S["ft"]: S["ti"] = (S["ti"]+1) % len(TYPES)
+      if state["type_focused"]:
+        state["type_index"] = (state["type_index"] + 1) % len(TYPES)
       elif player:
         try: player.Jump("+10")
         except Exception: pass
     elif key in ("\n", "\r"):
-      if S["ft"]: do_search(1) if S["q"] else None; S["ft"] = False
-      elif S["items"]:
-        ok, msg = do_play(S["items"][S["cur"]], ss)
-        if not ok: dx_msg(ss, bg, "播放", msg)
-    elif key in ("i", "I", "/"): S["edit"] = True
-    elif key in ("q", "Q"): S["run"] = False
-    elif key in ("l", "L"): dx_login(ss, bg)
-    elif key in ("c", "C"): ok, msg = do_cookies(); (None if ok else dx_msg(ss, bg, "登录", msg))
+      if state["type_focused"]:
+        do_search(1) if state["query"] else None
+        state["type_focused"] = False
+      elif state["items"]:
+        ok, message = do_play(state["items"][state["cursor"]], screen)
+        if not ok: dx_msg(screen, draw_background, "播放", message)
+    elif key in ("i", "I", "/"):
+      state["cursor_pos"] = len(state["query"])
+      state["editing"] = True
+    elif key in ("q", "Q"): state["running"] = False
+    elif key in ("l", "L"): dx_login(screen, draw_background)
+    elif key in ("c", "C"):
+      ok, message = do_cookies()
+      if not ok: dx_msg(screen, draw_background, "登录", message)
     elif key in ("p", "P"): load_pop(1)
     elif key in ("r", "R"): load_rec(1)
     elif key in ("h", "H"): load_his(1)
     elif key in ("w", "W"): load_tov(1)
-    elif key == "[": pp()
-    elif key == "]": np()
-    elif key == ",": dx_settings(ss, bg)
-    elif key == "?": dx_help(ss, bg)
-    elif key in ("s", "S"): do_search(S["pg"], True) if S["mode"] == "search" else (load_pop(S["pg"], True) if S["mode"] == "popular" else (load_rec(S["pg"], True) if S["mode"] == "recommend" else (load_his(S["pg"], True) if S["mode"] == "history" else load_tov(S["pg"], True))))
-    elif key == " " and player: player.toggle_pause(); S["playing"] = not S["playing"]
+    elif key == "[": prev_page()
+    elif key == "]": next_page()
+    elif key == ",": dx_settings(screen, draw_background)
+    elif key == "?": dx_help(screen, draw_background)
+    elif key in ("s", "S"):
+      if state["mode"] == "search": do_search(state["page"], True)
+      elif state["mode"] == "popular": load_pop(state["page"], True)
+      elif state["mode"] == "recommend": load_rec(state["page"], True)
+      elif state["mode"] == "history": load_his(state["page"], True)
+      else: load_tov(state["page"], True)
+    elif key == " " and player:
+      player.toggle_pause()
+      state["playing"] = not state["playing"]
     elif key == "+" and player:
-      player.volume_up(); S["vol"] = min(1.0, S["vol"] + 0.05)
+      player.volume_up()
+      state["volume"] = min(1.0, state["volume"] + 0.05)
     elif key == "-" and player:
-      player.volume_down(); S["vol"] = max(0.0, S["vol"] - 0.05)
+      player.volume_down()
+      state["volume"] = max(0.0, state["volume"] - 0.05)
 
-  def np():
-    if S["mode"] == "search" and S["pg"] < S["tp"]: do_search(S["pg"]+1)
-  def pp():
-    if S["mode"] == "search" and S["pg"] > 1: do_search(S["pg"]-1)
+  def next_page():
+    if state["mode"] == "search" and state["page"] < state["total_pages"]:
+      do_search(state["page"] + 1)
 
-  def main(ss):
-    curses.start_color(); curses.use_default_colors()
-    for i, (f, b) in enumerate([(curses.COLOR_BLACK, curses.COLOR_CYAN), (curses.COLOR_CYAN, -1), (curses.COLOR_YELLOW, -1), (curses.COLOR_BLACK, curses.COLOR_YELLOW), (curses.COLOR_BLACK, curses.COLOR_MAGENTA), (curses.COLOR_MAGENTA, -1), (curses.COLOR_BLACK, curses.COLOR_GREEN), (curses.COLOR_WHITE, -1), (curses.COLOR_CYAN, -1), (curses.COLOR_YELLOW, -1), (curses.COLOR_BLUE, -1), (curses.COLOR_RED, -1), (curses.COLOR_BLACK, curses.COLOR_RED)]): curses.init_pair(i+1, f, b)
-    curses.curs_set(0); ss.keypad(True)
-    curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION); curses.mouseinterval(0)
-    upd_login()
+  def prev_page():
+    if state["mode"] == "search" and state["page"] > 1:
+      do_search(state["page"] - 1)
+
+  def main(screen):
+    curses.start_color()
+    curses.use_default_colors()
+    for index, (foreground, background) in enumerate([(curses.COLOR_BLACK, curses.COLOR_CYAN), (curses.COLOR_CYAN, -1), (curses.COLOR_YELLOW, -1), (curses.COLOR_BLACK, curses.COLOR_YELLOW), (curses.COLOR_BLACK, curses.COLOR_MAGENTA), (curses.COLOR_MAGENTA, -1), (curses.COLOR_BLACK, curses.COLOR_GREEN), (curses.COLOR_WHITE, -1), (curses.COLOR_CYAN, -1), (curses.COLOR_YELLOW, -1), (curses.COLOR_BLUE, -1), (curses.COLOR_RED, -1), (curses.COLOR_BLACK, curses.COLOR_RED)]):
+      curses.init_pair(index + 1, foreground, background)
+    curses.curs_set(0)
+    screen.keypad(True)
+    curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+    curses.mouseinterval(0)
+    update_login()
     load_pop(1)
-    while S["run"]:
-      draw(ss)
-      try: ss.timeout(300 if player and S["playing"] else -1); key = ss.get_wch()
-      except curses.error: continue
-      except KeyboardInterrupt: break
-      handle_key(ss, key)
-
+    clean_old_cache()
+    while state["running"]:
+      bili_draw(screen)
+      try:
+        screen.timeout(300 if player and state["playing"] else -1)
+        key = screen.get_wch()
+      except curses.error:
+        continue
+      except KeyboardInterrupt:
+        break
+      handle_key(screen, key)
   try:
     curses.wrapper(main)
   except Exception:
     try: curses.endwin()
     except Exception: pass
     raise
+  finally:
+    try: curses.mousemask(0)
+    except Exception: pass
+    try: curses.endwin()
+    except Exception: pass
+  
+def clean_old_cache(CACHE_DIR=CACHE_DIR,max_age=86400):
+  try:
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    for name in os.listdir(CACHE_DIR):
+      if not name.endswith(".json"): continue
+      path = os.path.join(CACHE_DIR, name)
+      if time.time() - os.path.getmtime(path) > max_age:
+        os.remove(path)
+  except Exception:
+    pass
+    
 # =============================  END ==============================
 __bill_term = None
 def main():
    global __bill_term
    mun = 30
    global USD_MOD
-   Logo = ["\033[36m\033[H\033[2J\033[3J","███╗   ███╗██╗   ██╗███████╗██╗ ██████╗","████╗ ████║██║   ██║██╔════╝██║██╔════╝","██╔████╔██║██║   ██║███████╗██║██║","██║╚██╔╝██║██║   ██║╚════██║██║██║","██║ ╚═╝ ██║╚██████╔╝███████║██║╚██████╗","╚═╝     ╚═╝ ╚═════╝ ╚══════╝╚═╝ ╚═════╝","\033[35m","██████╗  ██████╗ ██╗    ██╗███╗   ██╗","██╔══██╗██╔═══██╗██║    ██║████╗  ██║","██║  ██║██║   ██║██║ █╗ ██║██╔██╗ ██║","██║  ██║██║   ██║██║███╗██║██║╚██╗██║","██████╔╝╚██████╔╝╚███╔███╔╝██║ ╚████║","╚═════╝  ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═══╝","\033[34m","██╗      ██████╗  █████╗ ██████╗","██║     ██╔═══██╗██╔══██╗██╔══██╗","██║     ██║   ██║███████║██║  ██║","██║     ██║   ██║██╔══██║██║  ██║","███████╗╚██████╔╝██║  ██║██████╔╝","╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝","\033[0m"]
+   Logo = ["\033[H\033[2J\033[3J","\033[38;2;255;80;80m███╗   ███╗ █████╗ ██╗███╗   ██╗","\033[38;2;255;120;60m████╗ ████║██╔══██╗██║████╗  ██║","\033[38;2;255;180;40m██╔████╔██║███████║██║██╔██╗ ██║","\033[38;2;180;220;60m██║╚██╔╝██║██╔══██║██║██║╚██╗██║","\033[38;2;80;220;180m██║ ╚═╝ ██║██║  ██║██║██║ ╚████║","\033[38;2;60;150;255m╚═╝     ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝","\n\n\033[0m"]
    width = shutil.get_terminal_size().columns
-   for _print in Logo:
-     time.sleep(print_sleep)
-     wide = len(_print)
-     if wide < width: wide = (width  - wide) // 2
+   for _pt in Logo:
+     if isinstance(_pt, str) and _pt.startswith("\033[H"):
+       print(_pt)
+       continue
+     wide=len(re.sub(r'\033\[[0-9;]*[A-Za-z]','',_pt))
+     if wide<width: wide=(width-wide)//2
      else: wide = 0
-     print(" "*wide,_print)
+     print(" "*wide,end="")
+     for _print in _pt:
+       try: time.sleep(print_sleep/10)
+       except: pass
+       print(_print,end="",flush=True)
+     print()
    while True:
-      print("─=≡Σ((( つ•̀ω•́)つ" , "  "*((width-50)//2) , f"\033[1;32m作者: \033[97m{Author_name}\033[0m")
+      print("\033[1;97m─=≡Σ((( つ•̀ω•́)つ" , "  "*((width-50)//2) , f"\033[1;32m作者: \033[97m{Author_name}\033[0m")
       print("\n\033[1;37;44m 欢迎使用歌曲下载器 \033[0m")
       print("  \033[1;37m请输入序号以选择功能:\033[0m")
       print("  \033[1;33m1)\033[0m \033[1;32m获取网络热门歌曲\033[0m")
@@ -3120,9 +3661,9 @@ def main():
          USD_MOD = False
          time.sleep(0.5)
       for _print in Logo:
-        wide = len(_print)
-        if wide < width: wide = (width  - wide) // 2
-        else: wide = 0
-        print(" "*wide,_print)
+         wide=len(re.sub(r'\033\[[0-9;]*[A-Za-z]','',_print))
+         if wide<width: wide=(width-wide)//2
+         else: wide = 0
+         print(" "*wide+_print)
 if __name__ == "__main__":
    main()
