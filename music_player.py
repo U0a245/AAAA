@@ -1849,7 +1849,6 @@ class fetch_bili():
      self.API_TIMEOUT = API_TIMEOUT
      self.HTTP_PROXY = HTTP_PROXY
      self.term_w, self.term_h = self.get_terminal_size()
-     self.cookies = None
      self.fetch_ps = 20
      self.session = requests.Session()
      self.__percent__=0
@@ -1868,10 +1867,13 @@ class fetch_bili():
      self.cookies_domain = ".bilibili.com"
      self._mixin_key = None
      self._mixin_key_expiry = 0
+     self.user_wbi=False
+     self.session.get("https://www.bilibili.com/", timeout=5)
+     self.cookies = self.session.cookies
      try: self.session.get("https://www.bilibili.com/", timeout=10)
      except Exception: pass
      self.search_order=["totalrank","click","pubdate","dm","stow"]
-     self.search_type=["video","user","bangumi","pgc","live","article"]
+     self.search_type=["video","user","bangumi","pgc","live","article", "audio", "audio_album", "audio_up"]
      self.search_do_type=["bili_user","video","media_bangumi","media_ft","live","live_room","article","topic","user","photo"]
      self.api_nav="https://api.bilibili.com/x/web-interface/nav"
      self.api_recommend = "https://api.bilibili.com/x/web-interface/index/top/feed/rcmd"
@@ -1901,6 +1903,7 @@ class fetch_bili():
      self.api_fav_folders = "https://api.bilibili.com/x/v3/fav/folder/created/list"
      self.api_comment = "https://api.bilibili.com/x/v2/reply"
      self.api_comment_reply = "https://api.bilibili.com/x/v2/reply/reply"
+     self.api_toview_add = "https://api.bilibili.com/x/v2/history/toview/add"
      
      
   def parse_bvid(self, url):
@@ -2256,17 +2259,14 @@ class fetch_bili():
      
   def bili_curl(self,url,params=None,return_type=None,request_type="GET",wbi=False,headers=None):
      head = dict(self.session.headers)
-     if headers:
-        head.update(headers)
-     if params is None:
-        params = {}
-     if wbi:
-        params = self._sign(params)
+     if headers: head.update(headers)
+     if params is None: params = {}
+     if wbi: params = self._sign(params)
      proxies={
        "http": self.HTTP_PROXY,
        "https": self.HTTP_PROXY,
      }
-     try: resource = requests.request(request_type,url,headers=self.session.headers,cookies=self.cookies,timeout=(self.API_TIMEOUT,self.API_TIMEOUT*2),proxies=proxies,params=params)
+     try: resource = requests.request(request_type,url,headers=head,cookies=self.cookies,timeout=(self.API_TIMEOUT,self.API_TIMEOUT*2),proxies=proxies,params=params)
      except Exception as err: 
        data = {"code": -1, "message": f"请求错误: {err}", "data": None}
        return type("R", (), {"json": lambda self: data})()
@@ -2279,36 +2279,36 @@ class fetch_bili():
      return resource
      
   def _safe_filename(self, name): return re.sub(r'[\\/:*?"<>|]', "_", name)
-  def get_history(self,pn=1,wbi=False): return self.bili_curl(self.api_history,params={"ps": self.fetch_ps,"pn": pn},wbi=wbi,return_type="json").json()
-  def get_toview(self,pn=1,wbi=False): return self.bili_curl(self.api_toview,params={"ps": self.fetch_ps,"pn": pn},wbi=wbi,return_type="json").json()
-  def get_recommend(self,pn=1,wbi=False): return self.bili_curl(self.api_recommend,params={"ps": self.fetch_ps,"pn": pn},wbi=wbi,return_type="json").json()
-  def get_pop(self,pn=1,wbi=False): return self.bili_curl(self.api_pop,params={"ps": self.fetch_ps,"pn": pn},wbi=wbi,return_type="json").json()
-  def search(self,search,pn=1,idx=0,wbi=False): return self.bili_curl(self.api_search,headers={"Referer": "https://search.bilibili.com"},params={"order": self.search_order[idx],"keyword": search,"page_size": self.fetch_ps,"page": pn},wbi=wbi,return_type="json").json()
-  def up_search(self,search,pn=1,idx=0,wbi=False): return self.bili_curl(self.api_up_search,headers={"Referer": "https://search.bilibili.com"},params={"search_type": self.search_type[idx],"keyword": search,"page_size": self.fetch_ps,"page": pn},wbi=wbi,return_type="json").json()
-  def do_search(self,search,pn=1,idx=0,wbi=False): return self.bili_curl(self.api_do_search,headers={"Referer": "https://search.bilibili.com"},params={"search_type": self.search_do_type[idx],"keyword": search,"page_size": self.fetch_ps,"page": pn},wbi=wbi,return_type="json").json()
-  def get_user_card(self,mid): return self.bili_curl(self.api_user_card,params={"mid": mid},return_type="json").json()
-  def get_user_stat(self,mid): return self.bili_curl(self.api_user_stat,params={"vmid": mid},return_type="json").json()
-  def get_user_videos(self,mid,pn=1,ps=20): return self.bili_curl(self.api_user_videos,params={"mid": mid,"pn": pn,"ps": ps,"order": "pubdate"},wbi=True,return_type="json").json()
-  def modify_relation(self,fid,act=1): return self.bili_curl(self.api_relation_modify,params={"fid": fid,"act": act,"re_src": 11,"csrf": self.session.cookies.get("bili_jct","")},request_type="POST",return_type="json").json()
-  def like_video(self,bvid,like=1): return self.bili_curl(self.api_like,params={"bvid": bvid,"like": like,"csrf": self.session.cookies.get("bili_jct","")},request_type="POST",return_type="json").json()
-  def add_coin(self,bvid,multiply=1,select_like=0): return self.bili_curl(self.api_coin,params={"bvid": bvid,"multiply": multiply,"select_like": select_like,"csrf": self.session.cookies.get("bili_jct","")},request_type="POST",return_type="json").json()
-  def get_audio_info(self,sid): return self.bili_curl(self.api_audio_info,params={"sid": sid},return_type="json").json()
-  def get_audio_url(self,sid): return self.bili_curl(self.api_audio_url,params={"sid": sid},return_type="json").json()
-  def get_view(self,bvid): return self.bili_curl(self.api_view,params={"bvid": bvid},return_type="json").json()
-  def get_danmaku(self,oid,segment=1): return self.bili_curl(self.api_danmaku_proto,params={"oid": oid,"segment": segment},return_type="raw")
-  def get_danmaku_history(self,oid,date): return self.bili_curl(self.api_danmaku_history,params={"oid": oid,"date": date},return_type="raw")
-  def get_danmaku_xml(self,cid): return self.bili_curl(self.api_danmaku_xml,params={"oid": cid},return_type="raw")
-  def get_user_space_info(self,mid): return self.bili_curl(self.api_user_space_info,params={"mid": mid},return_type="json").json()
-  def get_fav_folders(self,mid): return self.bili_curl(self.api_fav_folders,params={"up_mid": mid},return_type="json").json()
-  def fav_video(self,rid,add_media_ids="",del_media_ids=""): return self.bili_curl(self.api_fav,params={"rid": rid,"type": 2,"add_media_ids": add_media_ids,"del_media_ids": del_media_ids,"csrf": self.session.cookies.get("bili_jct","")},request_type="POST",return_type="json").json()
-  def get_comment(self,oid,type_=1,pn=1,ps=20): return self.bili_curl(self.api_comment,params={"type": type_,"oid": oid,"pn": pn,"ps": ps},return_type="json").json()
-  def get_comment_reply(self,oid,root,pn=1,ps=20): return self.bili_curl(self.api_comment_reply,params={"type": 1,"oid": oid,"root": root,"pn": pn,"ps": ps},return_type="json").json()
+  def add_toview(self,aid,wbi=False): return self.bili_curl(self.api_toview_add,params={"aid": aid, "csrf": self.session.cookies.get("bili_jct", "")},request_type="POST",wbi=wbi,return_type="json").json()
+  def get_history(self,pn=1,wbi=None): return self.bili_curl(self.api_history,params={"ps": self.fetch_ps,"pn": pn},wbi=self.user_wbi if wbi is None else wbi,return_type="json").json()
+  def get_toview(self,pn=1,wbi=None): return self.bili_curl(self.api_toview,params={"ps": self.fetch_ps,"pn": pn},wbi=self.user_wbi if wbi is None else wbi,return_type="json").json()
+  def get_recommend(self,pn=1,wbi=None): return self.bili_curl(self.api_recommend,params={"ps": self.fetch_ps,"pn": pn},wbi=self.user_wbi if wbi is None else wbi,return_type="json").json()
+  def get_pop(self,pn=1,wbi=None): return self.bili_curl(self.api_pop,params={"ps": self.fetch_ps,"pn": pn},wbi=self.user_wbi if wbi is None else wbi,return_type="json").json()
+  def search(self,search,pn=1,idx=0,wbi=None): return self.bili_curl(self.api_search,headers={"Referer": "https://search.bilibili.com"},params={"order": self.search_order[idx] if isinstance(idx,int) else idx,"keyword": search,"page_size": self.fetch_ps,"page": pn},wbi=self.user_wbi if wbi is None else wbi,return_type="json").json()
+  def up_search(self,search,pn=1,idx=0,wbi=None): return self.bili_curl(self.api_up_search,headers={"Referer": "https://search.bilibili.com"},params={"search_type": self.search_type[idx],"keyword": search,"page_size": self.fetch_ps,"page": pn},wbi=self.user_wbi if wbi is None else wbi,return_type="json").json()
+  def do_search(self,search,pn=1,idx=0,wbi=None): return self.bili_curl(self.api_do_search,headers={"Referer": "https://search.bilibili.com"},params={"search_type": self.search_do_type[idx],"keyword": search,"page_size": self.fetch_ps,"page": pn},wbi=self.user_wbi if wbi is None else wbi,return_type="json").json()
+  def get_user_card(self,mid,wbi=False): return self.bili_curl(self.api_user_card, params={"mid": mid}, wbi=wbi, return_type="json").json()
+  def get_user_stat(self,mid,wbi=False): return self.bili_curl(self.api_user_stat, params={"vmid": mid}, wbi=wbi, return_type="json").json()
+  def get_user_videos(self,mid,pn=1,ps=20,wbi=True): return self.bili_curl(self.api_user_videos, params={"mid": mid, "pn": pn, "ps": ps, "order": "pubdate"}, wbi=wbi, return_type="json").json()
+  def modify_relation(self,fid,act=1,wbi=False): return self.bili_curl(self.api_relation_modify, params={"fid": fid, "act": act, "re_src": 11, "csrf": self.session.cookies.get("bili_jct", "")}, request_type="POST", wbi=wbi, return_type="json").json()
+  def like_video(self,bvid,like=1,wbi=False): return self.bili_curl(self.api_like, params={"bvid": bvid, "like": like, "csrf": self.session.cookies.get("bili_jct", "")}, request_type="POST", wbi=wbi, return_type="json").json()
+  def add_coin(self,bvid,multiply=1,select_like=0, wbi=False): return self.bili_curl(self.api_coin, params={"bvid": bvid, "multiply": multiply, "select_like": select_like, "csrf": self.session.cookies.get("bili_jct", "")}, request_type="POST", wbi=wbi, return_type="json").json()
+  def get_audio_info(self,sid,wbi=False): return self.bili_curl(self.api_audio_info, params={"sid": sid}, wbi=wbi, return_type="json").json()
+  def get_audio_url(self,sid,wbi=False): return self.bili_curl(self.api_audio_url, params={"sid": sid}, wbi=wbi, return_type="json").json()
+  def get_view(self,bvid,wbi=False): return self.bili_curl(self.api_view, params={"bvid": bvid}, wbi=wbi, return_type="json").json()
+  def get_danmaku(self,oid,segment=1,wbi=True): return self.bili_curl(self.api_danmaku_proto, params={"oid": oid, "segment": segment}, wbi=wbi, return_type="raw")
+  def get_danmaku_history(self,oid,date,wbi=True): return self.bili_curl(self.api_danmaku_history, params={"oid": oid, "date": date}, wbi=wbi, return_type="raw")
+  def get_danmaku_xml(self,cid,wbi=True): return self.bili_curl(self.api_danmaku_xml, params={"oid": cid}, wbi=wbi, return_type="raw")
+  def get_user_space_info(self,mid,wbi=False): return self.bili_curl(self.api_user_space_info, params={"mid": mid}, wbi=wbi, return_type="json").json()
+  def get_fav_folders(self,mid,wbi=False): return self.bili_curl(self.api_fav_folders, params={"up_mid": mid}, wbi=wbi, return_type="json").json()
+  def fav_video(self,rid,add_media_ids="",del_media_ids="",wbi=False): return self.bili_curl(self.api_fav, params={"rid": rid, "type": 2, "add_media_ids": add_media_ids, "del_media_ids": del_media_ids, "csrf": self.session.cookies.get("bili_jct", "")}, request_type="POST", wbi=wbi, return_type="json").json()
+  def get_comment(self,oid,type_=1,pn=1,ps=20,wbi=True): return self.bili_curl(self.api_comment, params={"type": type_, "oid": oid, "pn": pn, "ps": ps}, wbi=wbi, return_type="json").json()
+  def get_comment_reply(self,oid,root,pn=1,ps=20,wbi=True): return self.bili_curl(self.api_comment_reply, params={"type": 1, "oid": oid, "root": root, "pn": pn, "ps": ps}, wbi=wbi, return_type="json").json()
 
 
 
 TYPES = ["用户", "视频", "番剧", "影视", "直播", "直播间", "专栏", "话题", "UP主", "相册", "音频", "音频专辑", "音频UP主"]
 TYPE_VALUES = ["bili_user", "video", "media_bangumi", "media_ft", "live", "live_room", "article", "topic", "user", "photo", "audio", "audio_album", "audio_up"]
-BROWSERS = fetch_bili().load_cookies_in_browser()
 QUALITY = [("360P", 16), ("480P", 32), ("720P", 64), ("1080P", 80), ("1080P+", 112), ("1080P60", 116), ("4K", 120)]
 NEED_LOGIN_QN = {64, 80, 112}
 NEED_VIP_QN = {116, 120}
@@ -2341,6 +2341,7 @@ def draw_box(screen, top, left, height, width, color, title=None):
   safe_addstr(screen, top + height - 1, left, "└" + "─" * (width - 2) + "┘", attr)
   if title:
     safe_addstr(screen, top, left + 2, f" {title} ", attr | curses.A_BOLD)
+
 class Dialog:
   def __init__(self, title, items, buttons, kind="list", default=0, checks=None, exclusive_groups=None):
     self.title, self.items, self.buttons, self.kind = title, items, buttons, kind
@@ -2349,11 +2350,32 @@ class Dialog:
     self.editing, self.edit_buffer = False, ""
     self.result, self.running, self.win = None, True, None
     self.exclusive_groups = exclusive_groups or []
-
+    self.button_focused = kind != "form"
+  def wrap(self,text, width):
+    if width <= 0: return [text]
+    lines, cur, cur_w = [], "", 0
+    for ch in text:
+        w = display_width(ch)
+        if cur_w + w > width:
+            lines.append(cur)
+            cur, cur_w = ch, w
+        else:
+            cur += ch
+            cur_w += w
+    lines.append(cur)
+    return lines or [""]
   def size(self, screen):
     screen_height, screen_width = screen.getmaxyx()
-    self.dialog_height = min(len(self.items) + 4, screen_height - 4)
     self.dialog_width = min(64, screen_width - 4)
+    text_width = self.dialog_width - 6
+    if self.kind == "text":
+      self.display_lines = []
+      for it in self.items:
+        for seg in str(it).split("\n"):
+          self.display_lines.extend(self.wrap(seg, text_width) or [""])
+    else:
+      self.display_lines = [str(it) for it in self.items]
+    self.dialog_height = min(len(self.display_lines) + 4, screen_height - 4)
     self.dialog_top = (screen_height - self.dialog_height) // 2
     self.dialog_left = (screen_width - self.dialog_width) // 2
 
@@ -2367,29 +2389,34 @@ class Dialog:
       self.win.addstr(0, 2, f" {self.title} ", curses.A_BOLD)
     except curses.error:
       pass
+    lines = self.display_lines
     visible_lines = self.dialog_height - 4
-    if self.cursor < self.scroll:
-      self.scroll = self.cursor
-    if self.cursor >= self.scroll + visible_lines:
-      self.scroll = self.cursor - visible_lines + 1
-    if self.scroll + visible_lines > len(self.items):
-      self.scroll = max(0, len(self.items) - visible_lines)
+    if self.kind == "text":
+      self.scroll = max(0, min(self.scroll, max(0, len(lines) - visible_lines)))
+    else:
+      if self.cursor < self.scroll:
+        self.scroll = self.cursor
+      if self.cursor >= self.scroll + visible_lines:
+        self.scroll = self.cursor - visible_lines + 1
+      if self.scroll + visible_lines > len(lines):
+        self.scroll = max(0, len(lines) - visible_lines)
     for line_index in range(visible_lines):
       index = self.scroll + line_index
-      if index >= len(self.items): break
-      if index == self.cursor:
+      if index >= len(lines):
+        break
+      if index == self.cursor and self.kind != "text":
         prefix = "➜ "
         attr = curses.A_REVERSE | curses.A_BOLD
       else:
         prefix = "  "
         attr = curses.A_NORMAL
-      line = str(self.items[index])
+      line = lines[index]
       if self.kind in ("check", "form") and index < len(self.checks):
         line = f"[{'*' if self.checks[index] else ' '}] {line}"
       if self.editing and index == self.cursor:
         key = line.rsplit(":", 1)[0] if ":" in line else line
         line = f"{key}: {self.edit_buffer}_"
-      line = prefix + truncate(line, self.dialog_width - 4 - display_width(prefix))
+      line = prefix + line
       pad = (self.dialog_width - 4) - display_width(line)
       if pad > 0:
         line += " " * pad
@@ -2397,7 +2424,7 @@ class Dialog:
         self.win.addstr(1 + line_index, 2, line, attr)
       except curses.error:
         pass
-    if len(self.items) > visible_lines:
+    if len(lines) > visible_lines:
       for i in range(self.dialog_height - 2):
         color = curses.color_pair(8) if i < visible_lines else curses.color_pair(11)
         try:
@@ -2409,7 +2436,7 @@ class Dialog:
     button_x = max(1, (self.dialog_width - total_width) // 2)
     for button_index, button in enumerate(self.buttons):
       label = f" {button['label']} "
-      attr = curses.color_pair(4) | curses.A_BOLD if button_index == self.button_cursor else curses.A_NORMAL
+      attr = curses.color_pair(4) | curses.A_BOLD if self.button_focused and button_index == self.button_cursor else curses.A_NORMAL
       try:
         self.win.addstr(self.dialog_height - 2, button_x, label, attr)
       except curses.error:
@@ -2417,7 +2444,7 @@ class Dialog:
       self.button_positions.append((button_x, button_x + display_width(label)))
       button_x += display_width(label) + 2
     self.win.refresh()
-
+    
   def _commit_edit(self):
     if ":" in self.items[self.cursor]:
       key = self.items[self.cursor].rsplit(":", 1)[0]
@@ -2425,7 +2452,83 @@ class Dialog:
     else:
       self.items[self.cursor] = self.edit_buffer
     self.editing = False
-
+    
+  def handle_key(self, screen, key):
+    if self.editing:
+      if isinstance(key, str):
+        if key in ("\n", "\r"): self._commit_edit()
+        elif key == "\x1b": self.editing = False
+        elif key in ("\x7f", "\b"): self.edit_buffer = self.edit_buffer[:-1]
+        elif ord(key) >= 32: self.edit_buffer += key
+      elif key == curses.KEY_BACKSPACE:
+        self.edit_buffer = self.edit_buffer[:-1]
+      elif key == curses.KEY_LEFT:
+        self.editing = False
+        self.button_focused = True
+        self.button_cursor = (self.button_cursor - 1) % len(self.buttons)
+      elif key == curses.KEY_RIGHT:
+        self.editing = False
+        self.button_focused = True
+        self.button_cursor = (self.button_cursor + 1) % len(self.buttons)
+      return
+    if key == "\t":
+      if self.kind == "form":
+        if not self.button_focused:
+          self.button_focused = True
+          self.button_cursor = 0
+        else:
+          self.button_cursor += 1
+          if self.button_cursor >= len(self.buttons):
+            self.button_focused = False
+            self.button_cursor = 0
+      else:
+        self.button_cursor = (self.button_cursor + 1) % len(self.buttons)
+      return
+    if key == curses.KEY_LEFT:
+      self.button_focused = True
+      self.button_cursor = (self.button_cursor - 1) % len(self.buttons)
+      return
+    if key == curses.KEY_RIGHT:
+      self.button_focused = True
+      self.button_cursor = (self.button_cursor + 1) % len(self.buttons)
+      return
+    visible_lines = self.dialog_height - 4
+    if self.kind == "text":
+      if key == curses.KEY_UP: self.scroll = max(0, self.scroll - 1)
+      elif key == curses.KEY_DOWN: self.scroll = min(max(0, len(self.display_lines) - visible_lines), self.scroll + 1)
+      elif key == curses.KEY_PPAGE: self.scroll = max(0, self.scroll - visible_lines)
+      elif key == curses.KEY_NPAGE: self.scroll = min(max(0, len(self.display_lines) - visible_lines), self.scroll + visible_lines)
+      elif key == curses.KEY_HOME: self.scroll = 0
+      elif key == curses.KEY_END: self.scroll = max(0, len(self.display_lines) - visible_lines)
+      elif key in ("\n", "\r") and self.button_focused:
+        button = self.buttons[self.button_cursor]
+        self.result = {"action": button["action"], "cursor": self.cursor, "checks": list(self.checks)}
+        self.running = False
+      elif key == "\x1b":
+        self.result = {"action": "cancel"}
+        self.running = False
+      return
+    if key == curses.KEY_UP:
+      if self.cursor > 0: self.cursor -= 1
+    elif key == curses.KEY_DOWN:
+      if self.cursor < len(self.items) - 1: self.cursor += 1
+    elif key == curses.KEY_PPAGE: self.cursor = max(0, self.cursor - (self.dialog_height - 4))
+    elif key == curses.KEY_NPAGE: self.cursor = min(len(self.items) - 1, self.cursor + (self.dialog_height - 4))
+    elif key == curses.KEY_HOME: self.cursor = 0
+    elif key == curses.KEY_END: self.cursor = len(self.items) - 1
+    elif key == " " and self.kind == "check": self._toggle_check(self.cursor)
+    elif key in ("\n", "\r") and self.button_focused:
+      button = self.buttons[self.button_cursor]
+      self.result = {"action": button["action"], "cursor": self.cursor, "checks": list(self.checks)}
+      self.running = False
+    elif key in ("\n", "\r") and self.kind == "check": self._toggle_check(self.cursor)
+    elif key in ("\n", "\r") and self.kind == "form":
+      if ":" in self.items[self.cursor]:
+        self.edit_buffer = self.items[self.cursor].rsplit(":", 1)[1].strip()
+        self.editing = True
+    elif key == "\x1b":
+      self.result = {"action": "cancel"}
+      self.running = False
   def _toggle_check(self, index):
     if index >= len(self.checks): return
     self.checks[index] = not self.checks[index]
@@ -2436,64 +2539,19 @@ class Dialog:
             if other != index:
               self.checks[other] = False
           break
-
-  def handle_key(self, screen, key):
-    if self.editing:
-      if isinstance(key, str):
-        if key in ("\n", "\r"): self._commit_edit()
-        elif key == "\x1b": self.editing = False
-        elif key in ("\x7f", "\b"): self.edit_buffer = self.edit_buffer[:-1]
-        elif ord(key) >= 32: self.edit_buffer += key
-      elif key == curses.KEY_BACKSPACE:
-        self.edit_buffer = self.edit_buffer[:-1]
-      return
-    if key == curses.KEY_UP:
-      if self.cursor > 0: self.cursor -= 1
-    elif key == curses.KEY_DOWN:
-      if self.cursor < len(self.items) - 1: self.cursor += 1
-    elif key == curses.KEY_PPAGE:
-      self.cursor = max(0, self.cursor - (self.dialog_height - 4))
-    elif key == curses.KEY_NPAGE:
-      self.cursor = min(len(self.items) - 1, self.cursor + (self.dialog_height - 4))
-    elif key == curses.KEY_HOME:
-      self.cursor = 0
-    elif key == curses.KEY_END:
-      self.cursor = len(self.items) - 1
-    elif key == " " and self.kind == "check":
-      self._toggle_check(self.cursor)
-    elif key in ("\n", "\r") and self.kind == "check":
-      self._toggle_check(self.cursor)
-    elif key in ("\n", "\r") and self.kind == "form":
-      if ":" in self.items[self.cursor]:
-        self.edit_buffer = self.items[self.cursor].rsplit(":", 1)[1].strip()
-        self.editing = True
-      else:
-        button = self.buttons[self.button_cursor]
-        self.result = {"action": button["action"], "cursor": self.cursor, "checks": list(self.checks)}
-        self.running = False
-    elif key == "\t":
-      self.button_cursor = (self.button_cursor + 1) % len(self.buttons)
-    elif key == curses.KEY_LEFT:
-      self.button_cursor = (self.button_cursor - 1) % len(self.buttons)
-    elif key == curses.KEY_RIGHT:
-      self.button_cursor = (self.button_cursor + 1) % len(self.buttons)
-    elif key in ("\n", "\r"):
-      button = self.buttons[self.button_cursor]
-      self.result = {"action": button["action"], "cursor": self.cursor, "checks": list(self.checks)}
-      self.running = False
-    elif key == "\x1b":
-      self.result = {"action": "cancel"}
-      self.running = False
-
+          
   def handle_mouse(self, screen, mouse_x, mouse_y, button_state):
     relative_x = mouse_x - self.dialog_left
     relative_y = mouse_y - self.dialog_top
     if relative_x < 0 or relative_x >= self.dialog_width or relative_y < 0 or relative_y >= self.dialog_height: return
+    visible_lines = self.dialog_height - 4
     if button_state & curses.BUTTON4_PRESSED:
-      self.cursor = max(0, self.cursor - 1)
+      if self.kind == "text": self.scroll = max(0, self.scroll - 1)
+      else: self.cursor = max(0, self.cursor - 1)
       return
     if button_state & curses.BUTTON5_PRESSED:
-      self.cursor = min(len(self.items) - 1, self.cursor + 1)
+      if self.kind == "text": self.scroll = min(max(0, len(self.display_lines) - visible_lines), self.scroll + 1)
+      else: self.cursor = min(len(self.items) - 1, self.cursor + 1)
       return
     if relative_y == self.dialog_height - 2:
       for button_index, (button_start, button_end) in enumerate(self.button_positions):
@@ -2502,11 +2560,11 @@ class Dialog:
           self.running = False
           return
     if 1 <= relative_y < self.dialog_height - 2:
+      if self.kind == "text": return
       index = self.scroll + (relative_y - 1)
       if 0 <= index < len(self.items):
         self.cursor = index
-        if self.kind == "check":
-          self._toggle_check(index)
+        if self.kind == "check": self._toggle_check(index)
 
   def run(self, screen, draw_background):
     while self.running:
@@ -2517,10 +2575,8 @@ class Dialog:
       try:
         screen.timeout(-1)
         key = screen.get_wch()
-      except curses.error:
-        continue
-      except KeyboardInterrupt:
-        break
+      except curses.error: continue
+      except KeyboardInterrupt: break
       if key == curses.KEY_MOUSE:
         try:
           _, mouse_x, mouse_y, _, button_state = curses.getmouse()
@@ -2612,7 +2668,7 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
       pass
     except Exception:
       pass
-  state = {"cursor_pos": 0,"editing": False,"type_focused": False,"query": "","type_index": 1,"mode": "popular","items": [],"cursor": 0,"tmp_cursor": 0,"tmp_list_cursor": 0,"down": 0,"page": 1,"total_pages": 1,"running": True,"login": "未登录","loading": False,"from_cache": False,"type_positions": [],"prev_button": (0, 0),"next_button": (0, 0),"more_button": (0, 0),"detail_buttons": {},"detail_actions": {},"detail_item": None,"login_button": (0, 0),"playing": False,"volume": 0.7,"last_click_time": 0,"last_click_index": -1,"temp_page_size": None,"progress_bar": (0, 0),"volume_bar": (0, 0),"progress_bar_row": -1,"volume_bar_row": -1,"loading_more": False,"message": "","dragging": None,"drag_time": 0}
+  state = {"cursor_pos": 0,"editing": False,"type_focused": False,"query": "","type_index": 1,"mode": "popular","items": [],"cursor": 0,"tmp_cursor": 0,"tmp_list_cursor": 0,"down": 0,"page": 1,"total_pages": 1,"running": True,"login": "未登录","loading": False,"from_cache": False,"type_positions": [],"prev_button": (0, 0),"next_button": (0, 0),"more_button": (0, 0),"detail_buttons": {},"detail_actions": {},"detail_item": None,"login_button": (0, 0),"playing": False,"volume": 0.7,"last_click_time": 0,"last_click_index": -1,"temp_page_size": None,"progress_bar": (0, 0),"volume_bar": (0, 0),"progress_bar_row": -1,"volume_bar_row": -1,"message": "","dragging": None,"drag_time": 0}
   def clean(text):return html.unescape(re.sub(r'</?em[^>]*>', '', text or "")).strip()
   def current_page_size(USE_SEARCH=False):
     if not USE_SEARCH and state["temp_page_size"] is not None: return state["temp_page_size"]
@@ -2626,16 +2682,32 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
     if not response or response.get("code") != 0: return output, 1
     data = response.get("data") or {}
     total = data.get("numPages") or data.get("pages") or 1
-    for video in data.get("result", []):
+    if content_type and "audio" in content_type:
+      try:
+        with open("debug.log", "a", encoding="utf-8") as f:
+          f.write(f"parse audio: type={content_type} total={total} result_type={type(data.get('result')).__name__} len={len(data.get('result') or [])}\n")
+          r0 = (data.get("result") or [])
+          if r0:
+            f.write(f"  first={r0[0]}\n")
+      except Exception:
+        pass
+    result = data.get("result", [])
+    if result and isinstance(result[0], dict) and "result_type" in result[0]:
+      flat = []
+      for group in result:
+        if group.get("result_type") == content_type or (content_type and "audio" in content_type and group.get("result_type") == "audio"):
+          flat.extend(group.get("data") or [])
+      result = flat
+    for video in result:
       if content_type == "video":
         output.append({"type": "video", "title": clean(video.get("title","")), "id": video.get("bvid",""), "author": clean(video.get("author","")), "play": video.get("play",0), "like": video.get("like",0), "danmaku": video.get("video_review",0), "favorite": video.get("favorites",0), "duration": video.get("duration",""), "pubdate": video.get("pubdate",0), "desc": video.get("description","") or video.get("desc",""), "typename": video.get("typename",""), "pic": video.get("pic","")})
       elif content_type == "bili_user":
-        output.append({"type": "user", "title": clean(video.get("uname","")), "id": video.get("mid",""), "usign": video.get("usign",""), "fans": video.get("fans",0), "videos": video.get("videos",0), "level": video.get("level",0), "pic": video.get("upic","")})
+        output.append({"type": "user", "title": clean(video.get("uname","")), "id": video.get("mid",""), "usign": video.get("usign",""), "fans": video.get("fans",0), "videos": video.get("videos",0), "level": video.get("level",0), "pic": video.get("upic",""), "gender": video.get("gender",0), "official_verify": (video.get("official_verify") or {}).get("desc",""), "room_id": video.get("room_id",0), "is_senior_member": video.get("is_senior_member",0)})
       else:
         output.append({"type": content_type, "title": clean(video.get("title") or video.get("uname","")), "id": video.get("bvid","") or video.get("mid",""), "author": clean(video.get("author","")), "play": video.get("play",0), "pic": video.get("pic","")})
     return output, total
 
-  def do_search(page=1, force=False):
+  def do_search(page=1, force=False, preferred="do_search", screen=None, draw_background=None):
     if not state["query"]: return (False, "请输入关键词")
     client.fetch_ps = current_page_size(USE_SEARCH=True)
     content_type = TYPE_VALUES[state["type_index"]]
@@ -2646,9 +2718,35 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
         state["items"], state["total_pages"], state["mode"], state["page"], state["cursor"], state["tmp_cursor"], state["tmp_list_cursor"], state["down"], state["from_cache"] = cached["items"], cached["total"], "search", page, 0, 0, 0, 0, True
         return (True, f"[缓存] {len(cached['items'])} 条")
     state["loading"] = True
+    if CURRENT_SCREEN is not None:
+      bili_draw(CURRENT_SCREEN)
+      CURRENT_SCREEN.refresh()
     try:
-      response = client.do_search(state["query"], pn=page, idx=state["type_index"])
+      if re.findall(r"audio",content_type): respons=client.search(state["query"],pn=page,idx=content_type)
+      else:
+        if preferred == "search":
+          response = client.search(state["query"], pn=page, idx=0, wbi=False)
+          if (response.get("data") or {}).get("result") is None:
+            response = client.search(state["query"], pn=page, idx=0, wbi=True)
+        elif preferred == "up_search":
+          response = client.up_search(state["query"], pn=page, idx=0, wbi=False)
+          if (response.get("data") or {}).get("result") is None:
+            response = client.up_search(state["query"], pn=page, idx=0, wbi=True)
+        else:
+          response = client.do_search(state["query"], pn=page, idx=state["type_index"], wbi=False)
+          if (response.get("data") or {}).get("result") is None:
+            response = client.do_search(state["query"], pn=page, idx=state["type_index"], wbi=True)
       items, total = parse(response, content_type)
+      if not items and preferred != "up_search" and screen is not None:
+        state["loading"] = False
+        next_pref = "search" if preferred == "do_search" else "up_search"
+        dlg = Dialog("搜索失败", [f"{preferred} 接口无结果", f"是否尝试 {next_pref} 接口？", "（备用接口内容可能略有出入）"],[{"label": "是", "action": "yes"}, {"label": "否", "action": "no"}], kind="list")
+        r = dlg.run(screen, draw_background)
+        if r and r.get("action") == "yes":
+          return do_search(page, force, next_pref, screen, draw_background)
+      if not items:
+        state["loading"] = False
+        return (False, f"{preferred} 接口无结果 (code={response.get('code')}, {response.get('message','')})")
       state["items"], state["mode"], state["cursor"], state["tmp_cursor"], state["tmp_list_cursor"], state["down"], state["page"], state["total_pages"], state["from_cache"] = items, "search", 0, 0, 0, 0, page, total, False
       cache_save(cache_key, {"items": items, "total": total})
       state["loading"] = False
@@ -2656,7 +2754,15 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
     except Exception as e:
       state["loading"] = False
       return (False, f"搜索失败: {e}")
-
+  def extract_bvid(text):
+    if not text: return None
+    text = text.strip()
+    m = re.search(r"(BV[0-9A-Za-z]{10})", text)
+    if m: return m.group(1)
+    m = re.search(r"av(\d+)", text, re.IGNORECASE)
+    if m: return f"av{m.group(1)}"
+    return None
+    
   def load_list(fetch_function, mode, page=1, force=False, append=False):
     client.fetch_ps = current_page_size()
     cache_key = f"{mode}_{page}_{current_page_size()}"
@@ -2666,8 +2772,16 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
         state["items"], state["mode"], state["page"], state["total_pages"], state["cursor"], state["tmp_cursor"], state["tmp_list_cursor"], state["down"], state["from_cache"] = cached, mode, page, 1, 0, 0, 0, 0, True
         return (True, f"[缓存] {len(cached)} 条")
     state["loading"] = True
+    if CURRENT_SCREEN is not None:
+      bili_draw(CURRENT_SCREEN)
+      CURRENT_SCREEN.refresh()
     try:
       response = fetch_function(pn=page)
+      if not (response.get("data") or {}).get("list") and not (response.get("data") or {}).get("item"):
+        try:
+          response = fetch_function(pn=page, wbi=True)
+        except TypeError:
+          pass
       data = response.get("data") or {}
       items = []
       for video in data.get("list", []) or data.get("item", []):
@@ -2689,10 +2803,8 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
   def load_tov(page=1, force=False, append=False): return load_list(client.get_toview, "toview", page, force, append)
 
   def update_login():
-    try:
-      state["login"] = "已登录" if client.check_login() else "未登录"
-    except Exception:
-      state["login"] = "未知"
+    try: state["login"] = "已登录" if client.check_login() else "未登录"
+    except Exception: state["login"] = "未知"
 
   def do_login_qr():
     curses.endwin()
@@ -2812,7 +2924,133 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
     input("按回车继续...")
     curses.doupdate()
     return result
-
+    
+  def do_download_bvid(screen, draw_background, bvid):
+    try:
+      resp = client.get_view(bvid)
+    except Exception as e:
+      return (False, f"请求失败: {e}")
+    if resp.get("code") != 0:
+      return (False, f"{resp.get('code')}: {resp.get('message','')}")
+    data = resp.get("data") or {}
+    item = {
+      "type": "video",
+      "id": data.get("bvid") or bvid,
+      "title": data.get("title", ""),
+      "author": (data.get("owner") or {}).get("name", ""),
+      "play": (data.get("stat") or {}).get("view", 0),
+      "like": (data.get("stat") or {}).get("like", 0),
+      "coin": (data.get("stat") or {}).get("coin", 0),
+      "favorite": (data.get("stat") or {}).get("favorite", 0),
+      "comment": (data.get("stat") or {}).get("reply", 0),
+      "danmaku": (data.get("stat") or {}).get("danmaku", 0),
+      "duration": data.get("duration", ""),
+      "pubdate": data.get("pubdate", 0),
+      "desc": data.get("desc", ""),
+      "typename": data.get("tname", ""),
+      "pic": data.get("pic", ""),
+    }
+    dlg = Dialog(f"播放 {item['title'][:20]}",[f"标题: {item['title']}",f"UP主: {item['author']}","是否下载该视频？"],[{"label": "下载", "action": "yes"}, {"label": "不要了", "action": "no"}], kind="list")
+    r = dlg.run(screen, draw_background)
+    if not r or r.get("action") != "yes":
+      return (True, "已取消")
+    dx_download(screen, draw_background, item)
+    return (True, "已打开下载")
+    
+  def open_user(mid, screen, page=1):
+    cache_key = f"user_{mid}_{page}"
+    cached = cache_load(cache_key)
+    if cached:
+      state["items"] = cached["items"]
+      state["cursor"] = 0
+      state["tmp_cursor"] = 0
+      state["tmp_list_cursor"] = 0
+      state["mode"] = "user"
+      state["page"] = page
+      state["total_pages"] = cached["total_pages"]
+      state["user_mid"] = mid
+      return (True, f"[缓存] 共 {cached['count']} 个视频 (第{page}/{cached['total_pages']}页)")
+    client.fetch_ps = current_page_size(USE_SEARCH=True)
+    try:
+      for _ in range(3):
+        resp = client.get_user_videos(mid,pn=page)
+        if resp and resp.get("code") == 0: break
+    except Exception as e:
+      return (False, f"请求失败: {e}")
+    if resp.get("code") != 0:
+      return (False, f"{resp.get('code')}: {resp.get('message','')}")
+    data = resp.get("data") or {}
+    vlist = (data.get("list") or {}).get("vlist") or []
+    if not vlist:
+      return (False, "该用户没有视频")
+    items = []
+    for v in vlist:
+      items.append({
+        "type": "video",
+        "id": v.get("bvid"),
+        "title": v.get("title"),
+        "author": v.get("author"),
+        "play": v.get("play"),
+        "comment": v.get("comment"),
+        "pubdate": v.get("created"),
+        "duration": v.get("length"),
+        "typename": "",
+        "pic": v.get("pic",""),
+        "desc": v.get("description",""),
+      })
+    page_info = data.get("page") or {}
+    count = page_info.get("count") or 0
+    total_pages = max(1, (count + 19) // 20) if count else 1
+    cache_save(cache_key, {"items": items, "total_pages": total_pages, "count": count})
+    state["items"] = items
+    state["cursor"] = 0
+    state["tmp_cursor"] = 0
+    state["tmp_list_cursor"] = 0
+    state["mode"] = "user"
+    state["page"] = page
+    state["total_pages"] = total_pages
+    state["user_mid"] = mid
+    return (True, f"共 {count} 个视频 (第{page}/{total_pages}页)")
+  def open_video_or_season(item, screen):
+    try:
+      resp = client.get_view(item["id"])
+    except Exception as e:
+      return (False, f"请求失败: {e}")
+    if resp.get("code") != 0:
+      return (False, f"{resp.get('code')}: {resp.get('message','')}")
+    data = resp.get("data") or {}
+    pages = data.get("pages") or []
+    season = data.get("ugc_season")
+    entries = []
+    if season:
+      for sec in season.get("sections", []):
+        for ep in sec.get("episodes", []):
+          entries.append({
+            "type": "video",
+            "id": ep.get("bvid"),
+            "title": ep.get("title") or (ep.get("arc") or {}).get("title"),
+            "cid": ep.get("cid"),
+          })
+    elif len(pages) > 1:
+      for p in pages:
+        entries.append({
+          "type": "video",
+          "id": item["id"],
+          "cid": p.get("cid"),
+          "title": p.get("part") or item.get("title"),
+          "_page": p.get("page"),
+        })
+    if not entries:
+      return do_play(item, screen)
+    state["items"] = entries
+    state["cursor"] = 0
+    state["tmp_cursor"] = 0
+    state["tmp_list_cursor"] = 0
+    state["mode"] = "season"
+    state["page"] = 1
+    state["total_pages"] = 1
+    return (True, f"共 {len(entries)} 个分P")
+ 
   def do_play(item, screen):
     if not item or item.get("type") != "video": return (False, "无选中项")
     hash_value = _md5(item["id"])
@@ -2821,7 +3059,7 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
       curses.endwin()
       print(f"正在下载音频: {item['title']}")
       try:
-        client.download_video(item["id"], save_path=CACHE_DIR, page=PLAY_PAGE, mode="audio", qn=PLAY_QN)
+        client.download_video(item["id"], save_path=CACHE_DIR, page=item.get("_page", PLAY_PAGE), mode="audio", qn=PLAY_QN)
       except KeyboardInterrupt:
         curses.doupdate()
         return (False, "已取消")
@@ -2951,7 +3189,27 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
       if quality not in NEED_LOGIN_QN and quality not in NEED_VIP_QN:
         return quality
     return 32
-
+    
+  def do_toview(screen, draw_background, item):
+    if not item or item.get("type") != "video":
+        return (False, "只能添加视频")
+    aid = item.get("aid")
+    if not aid:
+        try:
+          resp = client.get_view(item["id"])
+          aid = (resp.get("data") or {}).get("aid")
+        except Exception as e:
+          return (False, f"获取 aid 失败: {e}")
+    if not aid:
+        return (False, "无法获取 aid")
+    try:
+        resp = client.add_toview(aid)
+    except Exception as e:
+        return (False, f"请求失败: {e}")
+    if resp.get("code") != 0:
+        return (False, f"{resp.get('code')}: {resp.get('message','')}")
+    return (True, "已添加到稍后再看")
+    
   def dx_download(screen, draw_background, item):
     if not item or item.get("type") != "video": return
     quality_items = []
@@ -2991,16 +3249,33 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
     danmaku_dialog = Dialog("下载弹幕？", ["不下", "下载弹幕 xml"], [{"label": "确定", "action": "ok"}, {"label": "取消", "action": "cancel"}])
     danmaku_result = danmaku_dialog.run(screen, draw_background)
     want_danmaku = danmaku_result and danmaku_result["action"] == "ok" and danmaku_result["cursor"] == 1
-    page_dialog = Dialog("下载 - 分P", [f"P: {DLG_PAGE}"], [{"label": "下载", "action": "ok"}, {"label": "取消", "action": "cancel"}], kind="form")
-    page_result = page_dialog.run(screen, draw_background)
-    if not page_result or page_result["action"] != "ok": return
-    page = DLG_PAGE
-    try: page = int(page_dialog.items[0].rsplit(":", 1)[1].strip())
-    except Exception: pass
-    ok, message = do_download(item, mode, quality, page)
-    if want_danmaku:
+    curses.flushinp()
+    try:
       detail = client.get_view(item["id"])
       pages = (detail.get("data") or {}).get("pages") or []
+    except Exception:
+      pages = []
+    total_p = len(pages) if pages else 1
+    default_page = DLG_PAGE
+    page_dialog = Dialog(f"下载 - 分P (共 {total_p} P，填 0 下载全部)",[f"P: {default_page}"],[{"label": "下载", "action": "ok"}, {"label": "取消", "action": "cancel"}],kind="form")
+    page_result = page_dialog.run(screen, draw_background)
+    if not page_result or page_result["action"] != "ok": return
+    page = default_page
+    try: page = int(page_dialog.items[0].rsplit(":", 1)[1].split()[0].strip())
+    except Exception: pass
+    messages = []
+    if page == 0:
+      batch = 5 ; ok = True
+      for start in range(0, total_p, batch):
+        group = list(range(start + 1, min(start + batch, total_p) + 1))
+        dx_msg(screen, draw_background, "下载", f"正在下载 P{group[0]}-P{group[-1]} / 共 {total_p} P")
+        for p in group:
+          sub_ok, sub_msg = do_download(item, mode, quality, p)
+          messages.append(f"P{p}: {sub_msg}")
+          if not sub_ok: ok = False
+      message = f"全部下载完成，共 {total_p} P；成功 {sum(1 for m in messages if '成功' in m or '已' in m)}/{total_p}"
+    else: ok, message = do_download(item, mode, quality, page)
+    if want_danmaku and page != 0:
       if pages:
         cid = pages[min(page, len(pages)) - 1].get("cid")
         response = client.get_danmaku_xml(cid)
@@ -3031,7 +3306,7 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
     save_conf({"COOKIE_PATH": COOKIE_PATH, "CACHE_DIR": CACHE_DIR, "HTTP_PROXY": HTTP_PROXY or "", "download_mode": DOWNLOAD_MODE, "fetch_ps": str(FETCH_PS), "use_term_height": "1" if USE_TERM_HEIGHT else "0", "browser_idx": str(BROWSER_INDEX), "dlg_mode": DLG_MODE, "dlg_qn": str(DLG_QN), "dlg_page": str(DLG_PAGE), "play_qn": str(PLAY_QN), "play_page": str(PLAY_PAGE)})
 
   def dx_help(screen, draw_background):
-    lines = ["Enter      播放", "i /        搜索", "Tab        切换类型", "↑↓         移动", "←→         进度/切类型", "+ -        音量", "[ ]        翻页", "L          登录", "P          热门", "R          推荐", "H          历史", "W          稍后", ",          设置", "?          帮助", "Q          退出"]
+    lines = ["Enter      播放", "i /        搜索", "Tab        切换类型", "↑↓         移动", "←→         进度/切类型", "+ -        音量", "[ ]        翻页", "T          加稍后再看", "L          登录", "P          热门", "R          推荐", "H          历史", "W          稍后", ",          设置", "?          帮助", "Q          退出"]
     dialog = Dialog("帮助", lines, [{"label": "关闭", "action": "ok"}], kind="text")
     dialog.run(screen, draw_background)
 
@@ -3061,6 +3336,21 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
       if y >= max_y: return
       safe_addstr(screen, y, left + 2, truncate(f" {label}: {value}", inner_width), curses.color_pair(color))
       y += 1
+    def format_number(number):
+      if number is None or number == "null": return "0"
+      num = int(number)
+      if num >= 100000000: return f"{num//100000000}.{num%100000000*10//100000000}亿"
+      elif num >= 10000: return f"{num//10000}.{num%10000*10//10000}万"
+      return str(num)
+    def CSTT(s):
+      parts = [int(x) for x in str(s).split(":") if x.strip().isdigit()]
+      if not parts: return "0:00"
+      if len(parts) == 1: total = parts[0]
+      elif len(parts) == 2: total = parts[0] * 60 + parts[1]
+      else: total = parts[0] * 3600 + parts[1] * 60 + parts[2]
+      h, rem = divmod(total, 3600)
+      m, sec = divmod(rem, 60)
+      return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
     def put_clickable(label, value, action, color=9):
       nonlocal y
       if y >= max_y: return
@@ -3076,29 +3366,49 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
       return actions
     content_type = item.get("type","")
     if content_type == "video":
-      put("标题", item.get("title",""), 9)
+      title = item.get("title","")
+      if display_width(title) <= inner_width - display_width(" 标题: ") and "\n" not in title: put("标题", title, 9)
+      else: put_clickable("标题", "[点击查看]", "Title")
       put("BV号", item.get("id",""))
       put("UP主", item.get("author",""))
       put("分区", item.get("typename",""))
-      put("播放", item.get("play",0))
-      put_clickable("点赞", item.get("like",0), "like")
-      put_clickable("投币", item.get("coin",0), "coin")
-      put_clickable("收藏", item.get("favorite",0), "fav")
-      put_clickable("评论", item.get("comment",0), "comment")
+      put("播放", format_number(item.get("play",0)))
+      put_clickable("点赞", format_number(item.get("like",0)), "like")
+      put_clickable("投币", format_number(item.get("coin",0)), "coin")
+      put_clickable("收藏", format_number(item.get("favorite",0)), "fav")
+      put_clickable("评论", format_number(item.get("comment",0)), "comment")
+      desc = item.get("desc","") or item.get("introduction","")
+      if desc and display_width(desc) <= inner_width - display_width(" 简介: ") and "\n" not in desc: put("简介", desc)
+      else: put_clickable("简介", "[点击查看]", "Introduction")
+      put("是否充电专属", item.get("is_upower_exclusive","否"))
+      put("是否转载", "转载" if item.get("copyright")==2 else "原创")
       put("弹幕", item.get("danmaku",0))
-      put("时长", item.get("duration",""))
+      put("发布日期", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(item.get("pubdate", 0))))
+      put("总时长", CSTT(item.get("duration","")))
     elif content_type == "user":
       put("用户名", item.get("title",""), 9)
       put("UID", str(item.get("id","")))
-      put("粉丝", item.get("fans",0))
+      put("粉丝", format_number(item.get("fans",0)))
       put("视频", item.get("videos",0))
       put("等级", f"Lv{item.get('level',0)}")
-      put("签名", item.get("usign",""))
+      sign = item.get("usign","")
+      if sign and display_width(sign) <= inner_width - display_width(" 签名: ") and "\n" not in sign: put("签名", sign)
+      else: put_clickable("签名", "[点击查看]" if sign else "无", "UserSign")
+      put("性别", {1:"男",2:"女"}.get(item.get("gender",0), "保密"))
+      put("认证", item.get("official_verify","") or "无")
+      room_url = f"https://live.bilibili.com/{item.get('room_id')}" if item.get("room_id") else "无"
+      if display_width(room_url) <= inner_width - display_width(" 直播间: "): put("直播间", room_url)
+      else: put_clickable("直播间", "[点击查看]", "UserRoom")
+      space_url = f"https://space.bilibili.com/{item.get('id')}"
+      if display_width(space_url) <= inner_width - display_width(" 空间: "): put("空间", space_url)
+      else: put_clickable("空间", "[点击查看]", "UserSpace")
     else:
-      put("标题", item.get("title",""), 9)
+      title = item.get("title","")
+      if display_width(title) <= inner_width - display_width(" 标题: ") and "\n" not in title: put("标题", title, 9)
+      else: put_clickable("标题", "[点击查看]", "Title")
       put("ID", str(item.get("id","")))
       put("作者", item.get("author",""))
-      put("播放", item.get("play",0))
+      put("播放", format_number(item.get("play",0)))
     return actions
   def display_width(s):
     width = 0
@@ -3118,7 +3428,8 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
       return
     now = datetime.now().strftime("%H:%M:%S")
     cache_mark = " 💾" if state["from_cache"] else ""
-    left_title = f" ✦ BiliTui ✦ {state['mode']} P{state['page']}/{state['total_pages']}{cache_mark} "
+    loading_mark = " ⟳加载中" if state.get("loading") else ""
+    left_title = f" ✦ BiliTui ✦ {state['mode']} P{state['page']}/{state['total_pages']}{cache_mark}{loading_mark} "
     right_title = f" {state['login']} ✦ {now} "
     safe_addstr(screen, 0, 0, " " * (screen_width - 1), curses.color_pair(1))
     safe_addstr(screen, 0, 0, truncate(left_title, screen_width - 1), curses.color_pair(1) | curses.A_BOLD)
@@ -3142,44 +3453,39 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
     login_attr = curses.color_pair(1) | curses.A_BOLD if state["login"] != "已登录" else curses.color_pair(8) | curses.A_DIM
     safe_addstr(screen, 2, login_x, login_button, login_attr)
     if state["mode"] == "search":
-      left_marker = "◀ " if state["type_index"] > 0 else "  "
-      right_marker = " ▶" if state["type_index"] < len(TYPES) - 1 else "  "
-      available_width = screen_width - 8 - display_width(left_marker) - display_width(right_marker)
-      start_index = state["type_index"]
-      end_index = state["type_index"]
-      used_width = display_width(f"◆{TYPES[state['type_index']]}◆") + 2
+      current = state["type_index"]
+      total = len(TYPES)
+      window_start = state.get("window_start", 0)
+      available_width = screen_width - 6
       while True:
-        moved = False
-        if end_index + 1 < len(TYPES):
-          next_width = display_width(f" {TYPES[end_index + 1]} ") + 2
-          if used_width + next_width <= available_width:
-            end_index += 1
-            used_width += next_width
-            moved = True
-        if start_index - 1 >= 0:
-          prev_width = display_width(f" {TYPES[start_index - 1]} ") + 2
-          if used_width + prev_width <= available_width:
-            start_index -= 1
-            used_width += prev_width
-            moved = True
-        if not moved: break
-      segments = []
-      for index in range(start_index, end_index + 1):
-        segment = f"◆{TYPES[index]}◆" if index == state["type_index"] else f" {TYPES[index]} "
-        segments.append(segment)
-      line_text = "  ".join(segments)
-      start_x = center_x(line_text, screen_width)
-      positions = []
+        window_end = window_start
+        used_width = 0
+        while window_end < total:
+          w = display_width(f" {TYPES[window_end]} ") + 2
+          if used_width + w > available_width: break
+          used_width += w
+          window_end += 1
+        window_end -= 1
+        if current > window_end: window_start += 1
+        elif current < window_start: window_start -= 1
+        else: break
+      state["window_start"] = window_start
+      display_indices = list(range(window_start, window_end + 1))
+      segments = [f" {TYPES[i]} " for i in display_indices]
+      total_text = "  ".join(segments) ; start_x = center_x(total_text, screen_width) ; positions = []
       current_x = start_x
-      for index in range(start_index, end_index + 1):
-        segment = f"◆{TYPES[index]}◆" if index == state["type_index"] else f" {TYPES[index]} "
-        positions.append((current_x, current_x + display_width(segment), index))
-        current_x += display_width(segment) + 2
+      for i in display_indices:
+        seg = f" {TYPES[i]} "
+        positions.append((current_x, current_x + display_width(seg), i))
+        current_x += display_width(seg) + 2
       state["type_positions"] = positions
       if state["type_focused"]: safe_addstr(screen, 4, 0, " " * (screen_width - 1), curses.color_pair(5))
-      if state["type_index"] > 0: safe_addstr(screen, 4, 1, "◀ ", curses.color_pair(4) | curses.A_BOLD)
-      safe_addstr(screen, 4, start_x, line_text, curses.color_pair(5 if state["type_focused"] else 6))
-      if state["type_index"] < len(TYPES) - 1: safe_addstr(screen, 4, screen_width - 3, " ▶", curses.color_pair(4) | curses.A_BOLD)
+      for (x1, x2, idx) in positions:
+       if idx == current: text = f"◆{TYPES[idx]}◆"
+       else: text = f" {TYPES[idx]} "
+       safe_addstr(screen, 4, x1, text, curses.color_pair(5 if state["type_focused"] else 6))
+      if window_start > 0: safe_addstr(screen, 4, 1, "◀", curses.color_pair(4) | curses.A_BOLD)
+      if window_end < total - 1: safe_addstr(screen, 4, screen_width - 2, "▶", curses.color_pair(4) | curses.A_BOLD)
     else: state["type_positions"] = []
     has_player = player is not None
     panel_top = 6
@@ -3213,7 +3519,23 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
     state["prev_button"] = (0, 0)
     state["next_button"] = (0, 0)
     state["more_button"] = (0, 0)
-    if state["mode"] == "search":
+    state["back_button"] = (0, 0)
+    if state["mode"] == "user":
+      can_prev = state["page"] > 1
+      can_next = state["page"] < state["total_pages"]
+      prev_label, next_label, gap_text = " ◀ 上一页 ", " 下一页 ▶ ", "   "
+      total_width = display_width(prev_label) + display_width(gap_text) + display_width(next_label)
+      start_x = max(1, (list_width - total_width) // 2)
+      state["prev_button"] = (start_x, start_x + display_width(prev_label))
+      state["next_button"] = (start_x + display_width(prev_label) + display_width(gap_text), start_x + total_width)
+      safe_addstr(screen, button_row, start_x, prev_label, curses.color_pair(4) | curses.A_BOLD if can_prev else curses.color_pair(8) | curses.A_DIM)
+      safe_addstr(screen, button_row, start_x + display_width(prev_label), gap_text, curses.color_pair(8))
+      safe_addstr(screen, button_row, start_x + display_width(prev_label) + display_width(gap_text), next_label, curses.color_pair(4) | curses.A_BOLD if can_next else curses.color_pair(8) | curses.A_DIM)
+    elif state["mode"] == "season":
+      back_x = (list_width - display_width(" [ 返回 ] ")) // 2
+      state["back_button"] = (back_x, back_x + display_width(" [ 返回 ] "))
+      safe_addstr(screen, button_row, back_x, " [ 返回 ] ", curses.color_pair(4) | curses.A_BOLD)
+    elif state["mode"] == "search":
       can_prev = state["page"] > 1
       can_next = state["page"] < state["total_pages"]
       prev_label, next_label, gap_text = " ◀ 上一页 ", " 下一页 ▶ ", "   "
@@ -3225,10 +3547,9 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
       safe_addstr(screen, button_row, start_x + display_width(prev_label), gap_text, curses.color_pair(8))
       safe_addstr(screen, button_row, start_x + display_width(prev_label) + display_width(gap_text), next_label, curses.color_pair(4) | curses.A_BOLD if can_next else curses.color_pair(8) | curses.A_DIM)
     elif state["items"]:
-      more_label = " [ 加载中... ] " if state["loading_more"] else " [ 加载更多 ] "
-      more_x = (list_width - display_width(more_label)) // 2
-      state["more_button"] = (more_x, more_x + display_width(more_label))
-      safe_addstr(screen, button_row, more_x, more_label, curses.color_pair(4) | curses.A_BOLD)
+      more_x = (list_width - display_width(" [ 加载更多 ] ")) // 2
+      state["more_button"] = (more_x, more_x + display_width(" [ 加载更多 ] "))
+      safe_addstr(screen, button_row, more_x, " [ 加载更多 ] ", curses.color_pair(4) | curses.A_BOLD)
     current_item = state["items"][state["cursor"]] if 0 <= state["cursor"] < len(state["items"]) else None
     if current_item: enrich_item(current_item)
     state["detail_item"] = current_item
@@ -3268,7 +3589,7 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
       state["progress_bar_row"] = player_row + 1
     if state["message"]:
       safe_addstr(screen, screen_height - 2, 0, truncate(f" {state['message']}", screen_width - 1).ljust(screen_width - 1), curses.color_pair(10))
-    help_line = " Enter:播放  i:搜索  Tab:类型  ↑↓:移动  ←→:进度  +-:音量  ?:帮助  Q:退出 "
+    help_line = " Enter:播放  i:搜索  t:稍后再看  Tab:类型  ↑↓:移动  ←→:进度  +-:音量  ?:帮助  Q:退出 "
     safe_addstr(screen, screen_height - 1, 0, help_line.ljust(screen_width - 1), curses.color_pair(11))
     screen.refresh()
   def draw_background(screen): bili_draw(screen)
@@ -3282,7 +3603,10 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
         pygame.mixer.music.set_volume(volume)
       except Exception:
         pass
-
+  def dx_text(screen, draw_background, text, title="内容"):
+    if not text: return
+    dialog = Dialog(title, [text], [{"label": "关闭", "action": "ok"}], kind="text")
+    dialog.run(screen, draw_background)
   def handle_seek_click(mouse_x):
     progress_start, progress_end = state.get("progress_bar", (0, 0))
     if progress_start <= mouse_x <= progress_end and player:
@@ -3357,26 +3681,31 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
         state["type_focused"] = True
         if mouse_x <= 3 and state["type_index"] > 0:
           state["type_index"] -= 1
-          if state["query"]: do_search(1)
+          if state["query"]: do_search(1, screen=screen, draw_background=draw_background)
           return
         if mouse_x >= screen_width - 3 and state["type_index"] < len(TYPES) - 1:
           state["type_index"] += 1
-          if state["query"]: do_search(1)
+          if state["query"]: do_search(1, screen=screen, draw_background=draw_background)
           return
         for start, end, index in state.get("type_positions", []):
           if start <= mouse_x < end:
             if state["type_index"] != index:
               state["type_index"] = index
-              do_search(1) if state["query"] else None
+              do_search(1, screen=screen, draw_background=draw_background) if state["query"] else None
             break
         return
       for action, (row, value_start, value_end) in state.get("detail_actions", {}).items():
         if mouse_y == row and value_start <= mouse_x < value_end:
           current_item = state.get("detail_item")
-          if action == "like": do_like(screen, draw_background, current_item)
+          if action == "Title": dx_text(screen, draw_background, current_item.get("title",""), "标题")
+          elif action == "like": do_like(screen, draw_background, current_item)
           elif action == "coin": do_coin(screen, draw_background, current_item)
           elif action == "fav": do_fav(screen, draw_background, current_item)
           elif action == "comment": dx_comment(screen, draw_background, current_item)
+          elif action == "Introduction": dx_text(screen, draw_background, current_item.get("desc","") or current_item.get("introduction",""), "简介")
+          elif action == "UserSign": dx_text(screen, draw_background, current_item.get("usign",""), "签名")
+          elif action == "UserRoom": dx_text(screen, draw_background, f"https://live.bilibili.com/{current_item.get('room_id')}", "直播间")
+          elif action == "UserSpace": dx_text(screen, draw_background, f"https://space.bilibili.com/{current_item.get('id')}", "空间")
           return
       for action, (row, button_start, button_end) in state.get("detail_buttons", {}).items():
         if mouse_y == row and button_start <= mouse_x < button_end:
@@ -3387,8 +3716,20 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
           elif action == "settings": dx_settings(screen, draw_background)
           return
       if mouse_y == button_row:
+        back_start, back_end = state.get("back_button", (0, 0))
+        if back_start <= mouse_x < back_end:
+          state["mode"] = "search"
+          if state["query"]: do_search(1, screen=screen, draw_background=draw_background)
+          return
         prev_start, prev_end = state.get("prev_button", (0, 0))
         next_start, next_end = state.get("next_button", (0, 0))
+        if state["mode"] == "user":
+          if prev_start <= mouse_x < prev_end and state["page"] > 1:
+            open_user(state.get("user_mid"), screen, state["page"] - 1)
+            return
+          if next_start <= mouse_x < next_end and state["page"] < state["total_pages"]:
+            open_user(state.get("user_mid"), screen, state["page"] + 1)
+            return
         if prev_start <= mouse_x < prev_end:
           prev_page()
           return
@@ -3397,10 +3738,10 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
           return
         more_start, more_end = state.get("more_button", (0, 0))
         if more_start <= mouse_x < more_end:
-          state["loading_more"] = True
           state["temp_page_size"] = (state["temp_page_size"] or current_page_size()) + 5
+          state["more_button"] = ((list_width-display_width(" [ 加载中... ] "))//2,(list_width-display_width(" [ 加载中... ] "))//2+display_width(" [ 加载中... ] "))
+          safe_addstr(screen,button_row,(list_width-display_width(" [ 加载中... ] "))//2," [ 加载中... ] ",curses.color_pair(4)|curses.A_BOLD);screen.refresh()
           {"popular": load_pop, "recommend": load_rec, "history": load_his, "toview": load_tov}.get(state["mode"], load_pop)(1, False, True)
-          state["loading_more"] = False
           return
       if panel_top + 1 <= mouse_y < button_row and 1 <= mouse_x < list_width - 1:
         if button_state & (curses.BUTTON1_CLICKED | curses.BUTTON1_RELEASED):
@@ -3429,8 +3770,13 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
         if isinstance(key, str):
             if key in ("\n", "\r"):
                 state["editing"] = False
-                ok, message = do_search(1)
-                if not ok: dx_msg(screen, draw_background, "搜索", message)
+                bvid = extract_bvid(state["query"])
+                if bvid:
+                    ok, message = do_download_bvid(screen, draw_background, bvid)
+                    if not ok: dx_msg(screen, draw_background, "下载", message)
+                else:
+                    ok, message = do_search(1, screen=screen, draw_background=draw_background)
+                    if not ok: dx_msg(screen, draw_background, "搜索", message)
             elif key == "\x1b": state["editing"] = False
             elif key in ("\x7f", "\b"):
                 if pos > 0:
@@ -3456,14 +3802,14 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
     if key == "\t":
       state["type_focused"] = not state["type_focused"]
       return
-    if key == curses.KEY_UP:
+    if key == curses.KEY_UP and not state["editing"]:
       if state["cursor"] > 0:
         state["cursor"] -= 1
         if state["cursor"] < state["tmp_list_cursor"]:
           state["tmp_list_cursor"] = state["cursor"] + 1
         if state["cursor"] >= state["tmp_list_cursor"] + visible_lines:
           state["tmp_list_cursor"] = state["cursor"] - visible_lines + 1
-    elif key == curses.KEY_DOWN:
+    elif key == curses.KEY_DOWN and not state["editing"]:
       if state["cursor"] < len(state["items"]) - 1:
         state["cursor"] += 1
         if state["cursor"] >= state["tmp_list_cursor"] + visible_lines:
@@ -3484,11 +3830,24 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
         except Exception: pass
     elif key in ("\n", "\r"):
       if state["type_focused"]:
-        do_search(1) if state["query"] else None
+        do_search(1, screen=screen, draw_background=draw_background) if state["query"] else None
         state["type_focused"] = False
       elif state["items"]:
-        ok, message = do_play(state["items"][state["cursor"]], screen)
-        if not ok: dx_msg(screen, draw_background, "播放", message)
+        item = state["items"][state["cursor"]]
+        t = item.get("type")
+        if t in ("bili_user", "user"):
+          ok, message = open_user(item.get("mid") or item.get("id"), screen, 1)
+          if not ok: dx_msg(screen, draw_background, "用户", message)
+        elif t == "video" and state["mode"] not in ("user", "season"):
+          ok, message = open_video_or_season(item, screen)
+          if not ok: dx_msg(screen, draw_background, "播放", message)
+        else:
+          ok, message = do_play(item, screen)
+          if not ok: dx_msg(screen, draw_background, "播放", message)
+    elif key == "\x1b":
+      if state["mode"] in ("user", "season"):
+        state["mode"] = "search"
+        if state["query"]: do_search(1, screen=screen, draw_background=draw_background)
     elif key in ("i", "I", "/"):
       state["cursor_pos"] = len(state["query"])
       state["editing"] = True
@@ -3501,16 +3860,28 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
     elif key in ("r", "R"): load_rec(1)
     elif key in ("h", "H"): load_his(1)
     elif key in ("w", "W"): load_tov(1)
-    elif key == "[": prev_page()
-    elif key == "]": next_page()
+    elif key == "[":
+      if state["mode"] == "user" and state["page"] > 1:
+        open_user(state.get("user_mid"), screen, state["page"] - 1)
+      else:
+        prev_page()
+    elif key == "]":
+      if state["mode"] == "user" and state["page"] < state["total_pages"]:
+        open_user(state.get("user_mid"), screen, state["page"] + 1)
+      else:
+        next_page()
     elif key == ",": dx_settings(screen, draw_background)
     elif key == "?": dx_help(screen, draw_background)
     elif key in ("s", "S"):
-      if state["mode"] == "search": do_search(state["page"], True)
+      if state["mode"] == "search": do_search(state["page"], True, screen=screen, draw_background=draw_background)
       elif state["mode"] == "popular": load_pop(state["page"], True)
       elif state["mode"] == "recommend": load_rec(state["page"], True)
       elif state["mode"] == "history": load_his(state["page"], True)
       else: load_tov(state["page"], True)
+    elif key in ("t", "T"):
+      if state["items"]:
+        ok, message = do_toview(screen, draw_background, state["items"][state["cursor"]])
+        if not ok: dx_msg(screen, draw_background, "稍后再看", message)
     elif key == " " and player:
       player.toggle_pause()
       state["playing"] = not state["playing"]
@@ -3532,8 +3903,7 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
   def main(screen):
     curses.start_color()
     curses.use_default_colors()
-    for index, (foreground, background) in enumerate([(curses.COLOR_BLACK, curses.COLOR_CYAN), (curses.COLOR_CYAN, -1), (curses.COLOR_YELLOW, -1), (curses.COLOR_BLACK, curses.COLOR_YELLOW), (curses.COLOR_BLACK, curses.COLOR_MAGENTA), (curses.COLOR_MAGENTA, -1), (curses.COLOR_BLACK, curses.COLOR_GREEN), (curses.COLOR_WHITE, -1), (curses.COLOR_CYAN, -1), (curses.COLOR_YELLOW, -1), (curses.COLOR_BLUE, -1), (curses.COLOR_RED, -1), (curses.COLOR_BLACK, curses.COLOR_RED)]):
-      curses.init_pair(index + 1, foreground, background)
+    for index, (foreground, background) in enumerate([(curses.COLOR_BLACK, curses.COLOR_CYAN), (curses.COLOR_CYAN, -1), (curses.COLOR_YELLOW, -1), (curses.COLOR_BLACK, curses.COLOR_YELLOW), (curses.COLOR_BLACK, curses.COLOR_MAGENTA), (curses.COLOR_MAGENTA, -1), (curses.COLOR_BLACK, curses.COLOR_GREEN), (curses.COLOR_WHITE, -1), (curses.COLOR_CYAN, -1), (curses.COLOR_YELLOW, -1), (curses.COLOR_BLUE, -1), (curses.COLOR_RED, -1), (curses.COLOR_BLACK, curses.COLOR_RED)]): curses.init_pair(index + 1, foreground, background)
     curses.curs_set(0)
     screen.keypad(True)
     curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
@@ -3541,16 +3911,16 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
     update_login()
     load_pop(1)
     clean_old_cache()
+    global CURRENT_SCREEN
+    CURRENT_SCREEN = screen
     while state["running"]:
-      bili_draw(screen)
+      bili_draw(CURRENT_SCREEN)
       try:
-        screen.timeout(300 if player and state["playing"] else -1)
-        key = screen.get_wch()
-      except curses.error:
-        continue
-      except KeyboardInterrupt:
-        break
-      handle_key(screen, key)
+        CURRENT_SCREEN.timeout(300 if player and state["playing"] else -1)
+        key = CURRENT_SCREEN.get_wch()
+      except curses.error: continue
+      except KeyboardInterrupt: break
+      handle_key(CURRENT_SCREEN, key)
   try:
     curses.wrapper(main)
   except Exception:
@@ -3643,6 +4013,8 @@ def main():
          input(" " * max(0, (_tw() - dw("按回车继续...")) // 2) + "按回车继续...")
          player_bili = get_player()
          __bill_term = fetch_bili()
+         global BROWSERS
+         BROWSERS = __bill_term.load_cookies_in_browser()
         print("已同意")
         print("开始创建实例")
         bili_tui(__bill_term, player=player_bili,conf_file=CONF_FILE,music_dir=MUSIC_DIR)
