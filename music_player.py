@@ -543,7 +543,7 @@ class Player:
             global lrc_time
             start_time = getime()
             music_time = getmusic(str(filepath))
-            lrc_time, lrc_text = local_lrc(os.path.splitext(filepath)[0] + ".lrc")
+            lrc_time, lrc_text = load_lrc(os.path.splitext(filepath)[0] + ".lrc")
         except Exception:
             self.current_file = None
             self.is_paused = False
@@ -660,7 +660,7 @@ class Player:
             return f"{m:02d}:{s:02d}"
         return fmt(now_ms + flag * 1000), fmt(end_ms)
 
-def local_lrc(files):
+def load_lrc(files):
     if not os.path.exists(files):
        print(f"ERROR: 歌词文件不存在: {files}")
        return None,None
@@ -1047,7 +1047,7 @@ def play_gui():
             if not os.path.exists(path):
                 return False
             try:
-                a, b = local_lrc(path)
+                a, b = load_lrc(path)
                 self.t, self.x = a, b
                 self.has = len(a) > 0 and len(a) == len(b)
             except Exception as e:
@@ -2258,13 +2258,13 @@ class fetch_bili():
      self.__percent__=percent
      
   def load_cookies_in_browser(self,idx=None):
+     browsers=["chrome","chromium","firefox","librewolf","opera","opera_gx","edge","brave","vivaldi","arc","safari","w3m","lynx"]
+     try: browsers[idx]
+     except: return browsers
      try: import browser_cookie3
      except ModuleNotFoundError: 
        subprocess.run([sys.executable,"-m","pip","install","browser_cookie3","pycryptodome","keyring"],check=True)
        import browser_cookie3
-     browsers=["chrome","chromium","firefox","librewolf","opera","opera_gx","edge","brave","vivaldi","arc","safari","w3m","lynx"]
-     try: browsers[idx]
-     except: return browsers
      try:
         self.cookies=getattr(browser_cookie3,browsers[1])(domain_name=self.cookies_domain)
         return True
@@ -2720,13 +2720,15 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
       json.dump({"_ts": time.time(), "data": data}, open(path, "w", encoding="utf-8"), ensure_ascii=False)
     except Exception:
       pass
-  state = {"fav_media_id": None,"last_back_time": 0,"prev_mode": "recommend","now_playing": False,"cursor_pos": 0,"editing": False,"type_focused": False,"query": "","type_index": 1,"mode": "popular","items": [],"cursor": 0,"tmp_cursor": 0,"tmp_list_cursor": 0,"down": 0,"page": 1,"total_pages": 1,"running": True,"login": "未登录","loading": False,"from_cache": False,"type_positions": [],"prev_button": (0, 0),"next_button": (0, 0),"more_button": (0, 0),"back_button": (0, 0),"more_action": None,"user_mid": None,"detail_buttons": {},"detail_actions": {},"detail_item": None,"login_button": (0, 0),"playing": False,"volume": 0.7,"last_click_time": 0,"last_click_index": -1,"temp_page_size": None,"progress_bar": (0, 0),"volume_bar": (0, 0),"progress_bar_row": -1,"volume_bar_row": -1,"message": "","dragging": None,"drag_time": 0,"show_comments": False,"comment_replies": [],"comment_cursor": 0,"comment_scroll": 0,"comment_expanded": {},"comment_error": None,"comment_back_button": None,"comment_page": 1,"comment_loading": False,"comment_text_width": 60,"comment_visible": 20,"last_detail_cursor": -1}
+  state = {"no_more_map": {},"load_pn": 1,"enrich_cursor": -1,"fav_media_id": None,"last_back_time": 0,"prev_mode": "recommend","now_playing": False,"cursor_pos": 0,"editing": False,"type_focused": False,"query": "","type_index": 1,"mode": "popular","items": [],"cursor": 0,"tmp_cursor": 0,"tmp_list_cursor": 0,"down": 0,"page": 1,"total_pages": 1,"running": True,"login": "未登录","loading": False,"from_cache": False,"type_positions": [],"prev_button": (0, 0),"next_button": (0, 0),"more_button": (0, 0),"back_button": (0, 0),"more_action": None,"user_mid": None,"detail_buttons": {},"detail_actions": {},"detail_item": None,"login_button": (0, 0),"playing": False,"volume": 0.7,"last_click_time": 0,"last_click_index": -1,"progress_bar": (0, 0),"volume_bar": (0, 0),"progress_bar_row": -1,"volume_bar_row": -1,"message": "","dragging": None,"drag_time": 0,"show_comments": False,"comment_replies": [],"comment_cursor": 0,"comment_scroll": 0,"comment_expanded": {},"comment_error": None,"comment_back_button": None,"comment_page": 1,"comment_loading": False,"comment_text_width": 60,"comment_visible": 20,"last_detail_cursor": -1}
   def clean(text):return html.unescape(re.sub(r'</?em[^>]*>', '', text or "")).strip()
-  def current_page_size(USE_SEARCH=False):
-    if not USE_SEARCH and state["temp_page_size"] is not None: return state["temp_page_size"]
+  def current_page_size(USE_SEARCH=False, mode=None):
+    if not USE_SEARCH and mode:
+        ps = state.get("no_more_map", {}).get(f"{mode}_fetch_ps")
+        if ps is not None: return ps
     if USE_TERM_HEIGHT:
-      try: return max(5, curses.LINES - 14)
-      except Exception: return FETCH_PS
+        try: return max(5, curses.LINES - 14)
+        except Exception: return FETCH_PS
     return FETCH_PS
 
   def parse(response, content_type):
@@ -2818,12 +2820,16 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
     return None
     
   def load_list(fetch_function, mode, page=1, force=False, append=False):
-    client.fetch_ps = current_page_size()
-    cache_key = f"{mode}_{page}_{current_page_size()}"
+    _ps = state.get("no_more_map", {}).get(f"{mode}_fetch_ps") or current_page_size()
+    client.fetch_ps = _ps
+    cache_key = f"{mode}_{page}_{_ps}"
+    if append and state.get("no_more_map", {}).get(mode):
+        return (False, "没有更多了")
     if not force and not append:
       cached = cache_load(cache_key)
       if cached:
         state["items"], state["mode"], state["page"], state["total_pages"], state["cursor"], state["tmp_cursor"], state["tmp_list_cursor"], state["down"], state["from_cache"] = cached, mode, page, 1, 0, 0, 0, 0, True
+        state.setdefault("no_more_map", {})[mode] = False
         return (True, f"[缓存] {len(cached)} 条")
     state["loading"] = True
     if CURRENT_SCREEN is not None:
@@ -2831,6 +2837,17 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
       CURRENT_SCREEN.refresh()
     try:
       response = fetch_function(pn=page)
+      _m = state.setdefault("no_more_map", {})
+      _guard = 0
+      while response.get("code") == -400 and _guard < 20:
+        _cur = _m.get(f"{mode}_fetch_ps")
+        if not _cur or _cur <= 5:
+          break
+        _cur -= 5
+        _m[f"{mode}_fetch_ps"] = _cur
+        client.fetch_ps = _cur
+        _guard += 1
+        response = fetch_function(pn=page)
       if not (response.get("data") or {}).get("list") and not (response.get("data") or {}).get("item"):
         try:
           response = fetch_function(pn=page, wbi=True)
@@ -2841,9 +2858,25 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
       for video in data.get("list", []) or data.get("item", []):
         items.append({"type": "video", "title": clean(video.get("title","")), "id": video.get("bvid",""), "author": clean(video.get("owner",{}).get("name","")), "play": video.get("stat",{}).get("view",0), "like": video.get("stat",{}).get("like",0), "danmaku": video.get("stat",{}).get("danmaku",0), "favorite": video.get("stat",{}).get("favorite",0), "duration": video.get("duration",""), "pubdate": video.get("pubdate",0), "desc": video.get("desc",""), "typename": video.get("tname",""), "pic": video.get("pic","")})
       if append:
-        state["items"] = state["items"] + items
+        if not items:
+          state.setdefault("no_more_map", {})[mode] = True
+          state["loading"] = False
+          return (False, "没有更多了")
+        seen = {it.get("id") for it in state["items"]}
+        new_items = [it for it in items if it.get("id") not in seen]
+        if not new_items:
+          state.setdefault("no_more_map", {})[mode] = True
+          state["loading"] = False
+          return (False, "没有更多了")
+        state["items"] = state["items"] + new_items
+        state["load_pn"] = page
       else:
+        if not items:
+          state["loading"] = False
+          return (False, "返回空")
         state["items"], state["mode"], state["cursor"], state["tmp_cursor"], state["tmp_list_cursor"], state["down"], state["page"], state["total_pages"], state["from_cache"] = items, mode, 0, 0, 0, 0, page, 1, False
+        state["load_pn"] = page
+        state.setdefault("no_more_map", {})[mode] = False
       cache_save(cache_key, state["items"] if append else items)
       state["loading"] = False
       return (True, f"{mode} {len(items)} 条")
@@ -2862,7 +2895,8 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
     
   def format_number(number):
     if number is None or number == "null": return "0"
-    num = int(number)
+    try: num = int(number)
+    except (ValueError,TypeError): return number
     if num >= 100000000: return f"{num//100000000}.{num%100000000*10//100000000}亿"
     elif num >= 10000: return f"{num//10000}.{num%10000*10//10000}万"
     return str(num)
@@ -4014,7 +4048,8 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
       item["comment"] = stat.get("reply", 0)
       item["danmaku"] = stat.get("danmaku", item.get("danmaku", 0))
       item["enriched"] = True
-    except Exception: pass
+    except Exception:
+      item["enriched"] = True
     return item
 
   def draw_detail(screen, top, left, height, width, item):
@@ -4051,11 +4086,11 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
       put("分区", item.get("typename",""))
       put("播放", format_number(item.get("play",0)))
       put_clickable("点赞", format_number(item.get("like",0)), "like")
-      put_clickable("投币", format_number(item.get("coin",0)), "coin")
+      put_clickable("投币", format_number(item.get("coin","加载中")), "coin")
       put_clickable("收藏", format_number(item.get("favorite",0)), "fav")
       put_clickable("收藏夹", "加入", "favfolder")
       put_clickable("关注", "UP主", "follow")
-      put_clickable("评论", format_number(item.get("comment",0)), "comment")
+      put_clickable("评论", format_number(item.get("comment","加载中")), "comment")
       desc = item.get("desc","") or item.get("introduction","")
       if desc and display_width(desc) <= inner_width - display_width(" 简介: ") and "\n" not in desc: put("简介", desc)
       else: put_clickable("简介", "[点击查看]", "Introduction")
@@ -4230,14 +4265,17 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
         label = " [ 返回 ] "
         action = "back"
       else:
-        label = " [ 加载更多 ] "
-        action = "more"
+       if state.get("no_more_map", {}).get(state["mode"]): label = " [ 没有更多了 ] "
+       else: label = " [ 加载更多 ] "
+       action = "more"
       more_x = (list_width - display_width(label)) // 2
       state["more_button"] = (more_x, more_x + display_width(label))
       state["more_action"] = action
       safe_addstr(screen, button_row, more_x, label, curses.color_pair(4) | curses.A_BOLD)
     current_item = state["items"][state["cursor"]] if 0 <= state["cursor"] < len(state["items"]) else None
-    if current_item: enrich_item(current_item)
+    if current_item and not current_item.get("enriched"):
+      if state.get("enrich_cursor") == state["cursor"]: enrich_item(current_item)
+      else: state["enrich_cursor"] = state["cursor"]
     state["detail_item"] = current_item
     state["detail_actions"] = draw_detail(screen, panel_top, list_width, panel_height, detail_width, current_item)
     detail_button_row = panel_top + panel_height - 2
@@ -4481,10 +4519,13 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
           if state["mode"] in ("user", "season", "audio_menu", "audio_song", "followings", "fav"):
             _go_back(screen, draw_background)
             return
-          state["temp_page_size"] = (state["temp_page_size"] or current_page_size()) + 5
+          if state.get("no_more_map", {}).get(state["mode"]): return
+          _m = state.setdefault("no_more_map", {})
+          _cur = _m.get(f"{state['mode']}_fetch_ps", current_page_size())
+          _m[f"{state['mode']}_fetch_ps"] = _cur + 5
           state["more_button"] = ((list_width-display_width(" [ 加载中... ] "))//2,(list_width-display_width(" [ 加载中... ] "))//2+display_width(" [ 加载中... ] "))
           safe_addstr(screen,button_row,(list_width-display_width(" [ 加载中... ] "))//2," [ 加载中... ] ",curses.color_pair(4)|curses.A_BOLD);screen.refresh()
-          {"popular": load_pop, "recommend": load_rec, "history": load_his, "toview": load_tov}.get(state["mode"], load_pop)(1, False, True)
+          {"popular": load_pop, "recommend": load_rec, "history": load_his, "toview": load_tov}.get(state["mode"], load_pop)(state.get("load_pn", 1) + 1, False, True)
           return
       if panel_top + 1 <= mouse_y < button_row and 1 <= mouse_x < list_width - 1:
         if button_state & (curses.BUTTON1_CLICKED | curses.BUTTON1_RELEASED):
@@ -4699,7 +4740,7 @@ def bili_tui(client, player=None, conf_file=None, music_dir=None):
     while state["running"]:
       bili_draw(CURRENT_SCREEN)
       try:
-        CURRENT_SCREEN.timeout(300 if player and state["playing"] else -1)
+        CURRENT_SCREEN.timeout(300 if player and state["playing"] else 500)
         key = CURRENT_SCREEN.get_wch()
       except curses.error: continue
       except KeyboardInterrupt: break
